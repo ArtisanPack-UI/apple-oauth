@@ -99,4 +99,18 @@ return [
         'token'     => 'https://appleid.apple.com/auth/token',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | User model
+    |--------------------------------------------------------------------------
+    |
+    | Fully-qualified class name of the app-side user model an
+    | `apple_connections` row belongs to. Consumer apps that use a non-default
+    | user model (or a User model located outside `App\Models\`) should point
+    | this at their own class.
+    |
+    */
+
+    'user_model' => env( 'APPLE_OAUTH_USER_MODEL', 'App\\Models\\User' ),
+
 ];

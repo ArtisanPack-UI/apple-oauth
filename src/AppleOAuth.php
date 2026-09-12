@@ -18,6 +18,7 @@ namespace ArtisanPackUI\AppleOAuth;
 
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
+use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
 
 /**
  * Facade entry point for the Apple OAuth broker.
@@ -36,6 +37,7 @@ class AppleOAuth
     public function __construct(
         protected OAuthManager $oauth,
         protected ClientSecretGenerator $clientSecret,
+        protected TokenManager $tokens,
     ) {
     }
 
@@ -57,5 +59,15 @@ class AppleOAuth
     public function clientSecret(): ClientSecretGenerator
     {
         return $this->clientSecret;
+    }
+
+    /**
+     * Access the encrypted token store and refresh manager.
+     *
+     * @since 1.0.0
+     */
+    public function tokens(): TokenManager
+    {
+        return $this->tokens;
     }
 }
