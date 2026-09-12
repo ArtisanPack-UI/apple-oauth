@@ -19,6 +19,7 @@ namespace ArtisanPackUI\AppleOAuth;
 
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
+use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -70,10 +71,19 @@ class AppleOAuthServiceProvider extends ServiceProvider
             );
         } );
 
+        $this->app->singleton( TokenManager::class, function ( $app ) {
+            return new TokenManager(
+                $app->make( ConfigRepository::class ),
+                $app->make( HttpFactory::class ),
+                $app->make( ClientSecretGenerator::class ),
+            );
+        } );
+
         $this->app->singleton( 'apple-oauth', function ( $app ) {
             return new AppleOAuth(
                 $app->make( OAuthManager::class ),
                 $app->make( ClientSecretGenerator::class ),
+                $app->make( TokenManager::class ),
             );
         } );
     }
@@ -87,10 +97,17 @@ class AppleOAuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->loadMigrationsFrom( __DIR__ . '/../database/migrations' );
+
         if ( $this->app->runningInConsole() ) {
             $this->publishes(
                 [ __DIR__ . '/../config/apple-oauth.php' => config_path( 'apple-oauth.php' ) ],
                 'apple-oauth-config',
+            );
+
+            $this->publishes(
+                [ __DIR__ . '/../database/migrations' => database_path( 'migrations' ) ],
+                'apple-oauth-migrations',
             );
         }
     }
