@@ -188,10 +188,19 @@ class ClientSecretGenerator
         }
 
         $details = openssl_pkey_get_details( $key );
+        $curve   = false !== $details ? ( $details[ 'ec' ][ 'curve_name' ] ?? null ) : null;
 
-        if ( false === $details || OPENSSL_KEYTYPE_EC !== ( $details[ 'type' ] ?? null ) ) {
+        // ES256 is defined over the P-256 curve only; OpenSSL identifies P-256 as either
+        // "prime256v1" (its SEC name) or "secp256r1" (its NIST name). A P-384 key would
+        // otherwise pass the type check and produce truncated (invalid) R||S in
+        // derToRawSignature().
+        if (
+            false === $details
+            || OPENSSL_KEYTYPE_EC !== ( $details[ 'type' ] ?? null )
+            || ! in_array( $curve, [ 'prime256v1', 'secp256r1' ], true )
+        ) {
             throw new OAuthException(
-                __( 'Apple OAuth private_key must be an EC (P-256) key; ES256 requires an elliptic-curve key.' ),
+                __( 'Apple OAuth private_key must be a P-256 (prime256v1) EC key; ES256 does not accept other curves.' ),
             );
         }
 

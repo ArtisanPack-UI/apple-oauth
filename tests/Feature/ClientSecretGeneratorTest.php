@@ -221,6 +221,25 @@ it( 'rejects an RSA private key with a targeted EC-required error', function ():
     app( ClientSecretGenerator::class )->generate();
 } )->throws( OAuthException::class, 'EC' );
 
+it( 'rejects an EC key on a non-P-256 curve so an unverifiable signature is never emitted', function (): void {
+    $p384 = openssl_pkey_new( [
+        'private_key_type' => OPENSSL_KEYTYPE_EC,
+        'curve_name'       => 'secp384r1',
+    ] );
+
+    if ( false === $p384 ) {
+        // secp384r1 must exist on any modern OpenSSL; skip only if the platform is exotic.
+        expect( true )->toBeTrue();
+
+        return;
+    }
+
+    openssl_pkey_export( $p384, $p384Pem );
+    config()->set( 'apple-oauth.private_key', $p384Pem );
+
+    app( ClientSecretGenerator::class )->generate();
+} )->throws( OAuthException::class, 'P-256' );
+
 it( 'falls back to the default TTL when a nonsense value is configured', function (): void {
     config()->set( 'apple-oauth.client_secret_ttl', 0 );
 

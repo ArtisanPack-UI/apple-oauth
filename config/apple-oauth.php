@@ -23,12 +23,23 @@ return [
     | itself lives either inline as PEM or as a filesystem path, and is used
     | by the client-secret signer (see issue #3 for ES256 JWT generation).
     |
-    | For the authorization-code flow (#2) only `client_id`, `team_id`,
-    | `redirect_uri`, and `scopes` are required. The `client_secret` sent to
-    | Apple during code exchange is minted on demand by the ES256 signer from
-    | `team_id`, `key_id`, `client_id`, and `private_key`. Setting
-    | `client_secret` here overrides the signer — useful for local testing
-    | where a `.p8` key is inconvenient.
+    | Two credential modes are supported for the code-exchange step:
+    |
+    | 1. Generated (production): the ES256 signer mints the `client_secret`
+    |    JWT on demand. Requires `client_id`, `team_id`, `key_id`, and
+    |    `private_key` (plus `redirect_uri` and `scopes` for the flow itself).
+    |
+    | 2. Static override (local testing): set `client_secret` to a
+    |    pre-minted JWT string. The signer is bypassed entirely and
+    |    `team_id`, `key_id`, and `private_key` are not required.
+    |
+    | Security note on `private_key`: prefer an absolute filesystem path to
+    | the `.p8` file over inline PEM. `php artisan config:cache` freezes
+    | `env()` reads into `bootstrap/cache/config.php`, so an inline PEM will
+    | be persisted in cleartext inside the cache file. A filesystem path
+    | avoids that: only the path string is cached, and the key bytes stay
+    | in whatever protected location you point at (e.g.
+    | `~/.config/artisanpack/AuthKey_XXXXXXXXXX.p8`, mode 600).
     |
     */
 
