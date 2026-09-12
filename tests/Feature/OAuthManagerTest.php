@@ -16,13 +16,42 @@ beforeEach( function (): void {
 } );
 
 /**
- * Build a fake id_token JWT with the given payload.
+ * Build a fake id_token JWT with the given payload, filling in Apple's
+ * required claims (iss/aud/exp/nonce) from the current session unless the
+ * caller overrides them.
  */
 function fakeIdToken( array $claims ): string
 {
+    $defaults = [
+        'iss'   => 'https://appleid.apple.com',
+        'aud'   => 'com.example.service',
+        'exp'   => time() + 3600,
+        'nonce' => session( 'apple-oauth.nonce' ),
+    ];
+
+    $claims = array_merge( $defaults, $claims );
+
     $b64 = fn ( string $s ): string => rtrim( strtr( base64_encode( $s ), '+/', '-_' ), '=' );
 
     return $b64( '{"alg":"ES256"}' ) . '.' . $b64( (string) json_encode( $claims ) ) . '.signature';
+}
+
+/**
+ * Convenience wrapper: fake a successful Apple token endpoint response with
+ * an id_token whose claims are correct-by-default.
+ */
+function fakeTokenExchange( array $idTokenClaims = [], array $overrides = [] ): void
+{
+    $body = array_merge( [
+        'access_token' => 'apple-access-token',
+        'token_type'   => 'Bearer',
+        'expires_in'   => 3600,
+        'id_token'     => fakeIdToken( array_merge( [ 'sub' => 'apple-user-1' ], $idTokenClaims ) ),
+    ], $overrides );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( $body, 200 ),
+    ] );
 }
 
 it( 'builds an authorization URL with state, form_post response mode, and the requested scopes', function (): void {
@@ -68,22 +97,14 @@ it( 'refuses to build an authorization URL when credentials are missing', functi
 } )->throws( OAuthException::class );
 
 it( 'exchanges the code for tokens and returns a TokenResponse with the id_token identity', function (): void {
-    Http::fake( [
-        'https://appleid.apple.com/auth/token' => Http::response( [
-            'access_token'  => 'apple-access-token',
-            'token_type'    => 'Bearer',
-            'expires_in'    => 3600,
-            'refresh_token' => 'apple-refresh-token',
-            'id_token'      => fakeIdToken( [
-                'sub'   => '000123.abc456.def789',
-                'email' => 'user@example.com',
-            ] ),
-        ], 200 ),
-    ] );
-
     $manager = app( OAuthManager::class );
     $manager->authorizationUrl( 7 );
     $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange(
+        [ 'sub' => '000123.abc456.def789', 'email' => 'user@example.com' ],
+        [ 'refresh_token' => 'apple-refresh-token' ],
+    );
 
     $response = $manager->handleCallback( 'the-code', $state );
 
@@ -108,19 +129,12 @@ it( 'exchanges the code for tokens and returns a TokenResponse with the id_token
     } );
 } );
 
-it( 'captures the first-authorization user payload with the release name and email', function (): void {
-    Http::fake( [
-        'https://appleid.apple.com/auth/token' => Http::response( [
-            'access_token' => 'apple-access-token',
-            'token_type'   => 'Bearer',
-            'expires_in'   => 3600,
-            'id_token'     => fakeIdToken( [ 'sub' => 'apple-user-1', 'email' => 'private@relay.appleid.com' ] ),
-        ], 200 ),
-    ] );
-
+it( 'captures the first-authorization user payload for display name only', function (): void {
     $manager = app( OAuthManager::class );
     $manager->authorizationUrl( 1 );
     $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'sub' => 'apple-user-1', 'email' => 'private@relay.appleid.com' ] );
 
     $userPayload = json_encode( [
         'name'  => [ 'firstName' => 'Ada', 'lastName' => 'Lovelace' ],
@@ -132,7 +146,9 @@ it( 'captures the first-authorization user payload with the release name and ema
     expect( $response->profile->sub )->toBe( 'apple-user-1' );
     expect( $response->profile->firstName )->toBe( 'Ada' );
     expect( $response->profile->lastName )->toBe( 'Lovelace' );
-    expect( $response->profile->email )->toBe( 'ada@example.com' );
+    // Canonical email comes from the id_token (server-to-server), NOT the
+    // one-shot form-post `user` payload that rides through the browser.
+    expect( $response->profile->email )->toBe( 'private@relay.appleid.com' );
     expect( $response->profile->hasName() )->toBeTrue();
 } );
 
@@ -144,18 +160,11 @@ it( 'rejects a callback whose state does not match the session', function (): vo
 } )->throws( OAuthException::class, 'OAuth state mismatch' );
 
 it( 'consumes session state so replaying the same callback fails', function (): void {
-    Http::fake( [
-        'https://appleid.apple.com/auth/token' => Http::response( [
-            'access_token' => 'a',
-            'token_type'   => 'Bearer',
-            'expires_in'   => 3600,
-            'id_token'     => fakeIdToken( [ 'sub' => 'x' ] ),
-        ], 200 ),
-    ] );
-
     $manager = app( OAuthManager::class );
     $manager->authorizationUrl( 1 );
     $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange();
 
     $manager->handleCallback( 'code', $state );
 
@@ -168,8 +177,6 @@ it( 'refuses a callback whose session has no associated user context', function 
     $manager->authorizationUrl( 1 );
     $state = session( 'apple-oauth.state' );
 
-    // Simulate the session losing the user context (e.g. session regeneration
-    // between the redirect and the callback).
     session()->forget( 'apple-oauth.user_id' );
 
     $manager->handleCallback( 'the-code', $state );
@@ -188,3 +195,107 @@ it( 'wraps Apple token-endpoint failures in an OAuthException', function (): voi
 
     $manager->handleCallback( 'bad-code', $state );
 } )->throws( OAuthException::class, 'invalid_grant' );
+
+it( 'refuses to send client_secret to a non-HTTPS token endpoint', function (): void {
+    config()->set( 'apple-oauth.endpoints.token', 'http://appleid.apple.com/auth/token' );
+
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'HTTPS' );
+
+it( 'rejects a 2xx response that omits access_token', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'token_type' => 'Bearer',
+            'expires_in' => 3600,
+            'id_token'   => fakeIdToken( [ 'sub' => 'x' ] ),
+        ], 200 ),
+    ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'access_token' );
+
+it( 'rejects a 2xx response that omits id_token', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'access_token' => 'apple-access-token',
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
+        ], 200 ),
+    ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'id_token' );
+
+it( 'rejects an id_token from an unexpected issuer', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'iss' => 'https://attacker.example.com' ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'issuer' );
+
+it( 'rejects an id_token whose audience is not the configured client', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'aud' => 'com.someone-else.service' ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'audience' );
+
+it( 'rejects an expired id_token', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'exp' => time() - 60 ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'expired' );
+
+it( 'rejects an id_token whose nonce does not match the session', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'nonce' => 'not-the-session-nonce' ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'nonce' );
+
+it( 'rejects an id_token whose sub claim is missing', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'sub' => '' ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'sub' );
+
+it( 'accepts an id_token whose aud claim is an array containing the client', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 3 );
+    $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'aud' => [ 'com.example.service', 'com.other' ] ] );
+
+    $response = $manager->handleCallback( 'code', $state );
+
+    expect( $response->profile->sub )->toBe( 'apple-user-1' );
+} );
