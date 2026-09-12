@@ -16,6 +16,7 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth;
 
+use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
 
 /**
@@ -32,8 +33,10 @@ use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
  */
 class AppleOAuth
 {
-    public function __construct( protected OAuthManager $oauth )
-    {
+    public function __construct(
+        protected OAuthManager $oauth,
+        protected ClientSecretGenerator $clientSecret,
+    ) {
     }
 
     /**
@@ -44,5 +47,15 @@ class AppleOAuth
     public function oauth(): OAuthManager
     {
         return $this->oauth;
+    }
+
+    /**
+     * Access the ES256 client-secret JWT generator.
+     *
+     * @since 1.0.0
+     */
+    public function clientSecret(): ClientSecretGenerator
+    {
+        return $this->clientSecret;
     }
 }

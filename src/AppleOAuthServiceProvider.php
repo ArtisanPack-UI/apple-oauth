@@ -17,7 +17,9 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth;
 
+use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
@@ -52,16 +54,27 @@ class AppleOAuthServiceProvider extends ServiceProvider
             'apple-oauth',
         );
 
+        $this->app->singleton( ClientSecretGenerator::class, function ( $app ) {
+            return new ClientSecretGenerator(
+                $app->make( ConfigRepository::class ),
+                $app->make( CacheRepository::class ),
+            );
+        } );
+
         $this->app->singleton( OAuthManager::class, function ( $app ) {
             return new OAuthManager(
                 $app->make( ConfigRepository::class ),
                 $app->make( 'session.store' ),
                 $app->make( HttpFactory::class ),
+                $app->make( ClientSecretGenerator::class ),
             );
         } );
 
         $this->app->singleton( 'apple-oauth', function ( $app ) {
-            return new AppleOAuth( $app->make( OAuthManager::class ) );
+            return new AppleOAuth(
+                $app->make( OAuthManager::class ),
+                $app->make( ClientSecretGenerator::class ),
+            );
         } );
     }
 

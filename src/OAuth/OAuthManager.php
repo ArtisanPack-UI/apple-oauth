@@ -45,6 +45,7 @@ class OAuthManager
         protected ConfigRepository $config,
         protected Session $session,
         protected HttpFactory $http,
+        protected ClientSecretGenerator $clientSecret,
     ) {
     }
 
@@ -143,8 +144,12 @@ class OAuthManager
         $redirectUri  = (string) $this->config->get( 'apple-oauth.redirect_uri', '' );
         $clientSecret = (string) $this->config->get( 'apple-oauth.client_secret', '' );
 
-        if ( '' === $clientId || '' === $redirectUri || '' === $clientSecret ) {
+        if ( '' === $clientId || '' === $redirectUri ) {
             throw new OAuthException( __( 'Apple OAuth credentials are not configured.' ) );
+        }
+
+        if ( '' === $clientSecret ) {
+            $clientSecret = $this->clientSecret->generate();
         }
 
         $endpoint = (string) $this->config->get(

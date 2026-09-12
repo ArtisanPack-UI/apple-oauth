@@ -299,3 +299,31 @@ it( 'accepts an id_token whose aud claim is an array containing the client', fun
 
     expect( $response->profile->sub )->toBe( 'apple-user-1' );
 } );
+
+it( 'falls back to the ES256 signer when no static client_secret is configured', function (): void {
+    $key = openssl_pkey_new( [
+        'private_key_type' => OPENSSL_KEYTYPE_EC,
+        'curve_name'       => 'prime256v1',
+    ] );
+    openssl_pkey_export( $key, $pem );
+
+    config()->set( 'apple-oauth.client_secret', '' );
+    config()->set( 'apple-oauth.key_id', 'KEY1' );
+    config()->set( 'apple-oauth.private_key', $pem );
+
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    fakeTokenExchange( [ 'sub' => 'apple-user-1' ] );
+
+    $manager->handleCallback( 'code', $state );
+
+    Http::assertSent( function ( $request ): bool {
+        $secret = (string) ( $request[ 'client_secret' ] ?? '' );
+
+        // A minted JWT is three base64url segments separated by dots.
+        return 3 === count( explode( '.', $secret ) )
+            && str_starts_with( $secret, 'ey' );
+    } );
+} );
