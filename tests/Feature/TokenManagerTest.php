@@ -105,6 +105,64 @@ it( 'preserves an existing refresh token when a subsequent authorization omits i
         ->toBe( 'apple-refresh-token' );
 } );
 
+it( 'reconnects a previously-disconnected connection on re-authorization', function (): void {
+    $manager    = app( TokenManager::class );
+    $connection = $manager->store( tokenResponse() );
+    $connection->markDisconnected( 'Refresh token revoked or expired.' );
+
+    // User re-authorizes via the browser flow; OAuthManager::handleCallback()
+    // hands us a fresh TokenResponse for the same user.
+    $manager->store( tokenResponse( [ 'accessToken' => 'reauthorized' ] ) );
+
+    $connection->refresh();
+    expect( $connection->isConnected() )->toBeTrue();
+    expect( $connection->status )->toBe( AppleConnection::STATUS_CONNECTED );
+    expect( $connection->disconnect_reason )->toBeNull();
+    expect( $connection->access_token )->toBe( 'reauthorized' );
+} );
+
+it( 'preserves a stored non-default token_type when a refresh response omits it', function (): void {
+    $manager    = app( TokenManager::class );
+    $connection = $manager->store( tokenResponse( [
+        'tokenType' => 'MAC',
+        'expiresAt' => Carbon::now()->subMinute(),
+    ] ) );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'access_token' => 'refreshed',
+            'expires_in'   => 3600,
+        ], 200 ),
+    ] );
+
+    $manager->refresh( $connection );
+
+    $connection->refresh();
+    expect( $connection->token_type )->toBe( 'MAC' );
+} );
+
+it( 'falls back to the documented 3600s window when a refresh response omits expires_in', function (): void {
+    $manager    = app( TokenManager::class );
+    $connection = $manager->store( tokenResponse( [
+        'expiresAt' => Carbon::now()->subMinute(),
+    ] ) );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'access_token' => 'refreshed',
+            'token_type'   => 'Bearer',
+        ], 200 ),
+    ] );
+
+    $manager->refresh( $connection );
+
+    $connection->refresh();
+    // Must advance past the safety window so getValidAccessToken() does not
+    // immediately loop back into another refresh.
+    expect( $connection->isExpired() )->toBeFalse();
+    expect( $connection->expires_at->isFuture() )->toBeTrue();
+} );
+
 it( 'returns the stored access token when it is still valid', function (): void {
     $manager    = app( TokenManager::class );
     $connection = $manager->store( tokenResponse( [

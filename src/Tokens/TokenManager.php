@@ -67,7 +67,11 @@ class TokenManager
     {
         $connection = AppleConnection::firstOrNew( [ 'user_id' => $response->userId ] );
 
-        $connection->apple_user_id     = $response->profile->sub ?: $connection->apple_user_id;
+        // `sub` is validated non-empty by OAuthManager::validateIdTokenClaims()
+        // before a TokenResponse ever reaches us, so a direct assignment is
+        // safe here. `email` is nullable — Apple omits it on re-authorizations
+        // after the first — so `??` preserves the previously-stored address.
+        $connection->apple_user_id     = $response->profile->sub;
         $connection->email             = $response->profile->email ?? $connection->email;
         $connection->access_token      = $response->accessToken;
         $connection->id_token          = $response->idToken;
@@ -174,11 +178,18 @@ class TokenManager
         }
 
         $connection->access_token = (string) $payload[ 'access_token' ];
-        $connection->token_type   = (string) ( $payload[ 'token_type' ] ?? 'Bearer' );
 
-        if ( isset( $payload[ 'expires_in' ] ) ) {
-            $connection->expires_at = Carbon::now()->addSeconds( (int) $payload[ 'expires_in' ] );
+        if ( ! empty( $payload[ 'token_type' ] ) ) {
+            $connection->token_type = (string) $payload[ 'token_type' ];
         }
+
+        // Apple always documents an `expires_in` on a successful refresh, but
+        // fall back to the documented default (3600s / one hour) rather than
+        // leaving `expires_at` in the past — otherwise every subsequent call
+        // to `getValidAccessToken()` would treat the token as expired and
+        // hammer `/auth/token` on a loop.
+        $expiresIn                = isset( $payload[ 'expires_in' ] ) ? (int) $payload[ 'expires_in' ] : 3600;
+        $connection->expires_at   = Carbon::now()->addSeconds( $expiresIn );
 
         // Apple typically does NOT rotate refresh tokens, but the OAuth2 spec
         // permits it. Persist a new one when returned so a rotated grant
