@@ -5,6 +5,7 @@ declare( strict_types=1 );
 namespace Tests;
 
 use ArtisanPackUI\AppleOAuth\AppleOAuthServiceProvider;
+use ArtisanPackUI\Hooks\Providers\HooksServiceProvider;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
 /**
@@ -36,6 +37,7 @@ abstract class TestCase extends BaseTestCase
     protected function getPackageProviders( $app ): array
     {
         return [
+            HooksServiceProvider::class,
             AppleOAuthServiceProvider::class,
         ];
     }

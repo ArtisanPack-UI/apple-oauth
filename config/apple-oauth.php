@@ -81,8 +81,14 @@ return [
     | Default scopes
     |--------------------------------------------------------------------------
     |
-    | List of scopes Apple should prompt for on first authorization. Apple
-    | currently supports `name` and `email`.
+    | Historical scope list. Since 1.0.0 the source of truth for requested
+    | scopes is the `ScopeRegistry` — its baseline is `name` + `email`
+    | (Apple only releases the one-shot `user` payload when both are
+    | requested) and dependent packages contribute more via the
+    | `ap.apple-oauth.scopes` filter hook. `OAuthManager::authorizationUrl()`
+    | reads from the registry, not from this array. The key is preserved so
+    | existing publishes do not break; callers who need custom scopes should
+    | register them through the filter (or pass an explicit `$override`).
     |
     */
 

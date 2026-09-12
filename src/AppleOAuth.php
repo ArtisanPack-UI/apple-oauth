@@ -18,6 +18,7 @@ namespace ArtisanPackUI\AppleOAuth;
 
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
+use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
 use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
 
 /**
@@ -38,6 +39,7 @@ class AppleOAuth
         protected OAuthManager $oauth,
         protected ClientSecretGenerator $clientSecret,
         protected TokenManager $tokens,
+        protected ScopeRegistry $scopes,
     ) {
     }
 
@@ -69,5 +71,15 @@ class AppleOAuth
     public function tokens(): TokenManager
     {
         return $this->tokens;
+    }
+
+    /**
+     * Access the scope registry.
+     *
+     * @since 1.0.0
+     */
+    public function scopes(): ScopeRegistry
+    {
+        return $this->scopes;
     }
 }
