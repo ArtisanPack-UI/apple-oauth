@@ -44,7 +44,7 @@ There are a ton of different ways to contribute to ArtisanPack UI even if you're
 
 Before contributing, make sure you have:
 - Git installed on your machine
-- PHP 8.1 or higher
+- PHP 8.2 or higher
 - Composer
 - A GitLab, GitHub, or other Git hosting account
 
@@ -336,13 +336,13 @@ ArtisanPack UI is primarily hosted on GitLab, but you can contribute from any Gi
 
 2. **Clone your fork**
    ```bash
-   git clone git@gitlab.com:your-username/artisanpack-ui-package.git
-   cd artisanpack-ui-package
+   git clone git@github.com:your-username/apple-oauth.git
+   cd apple-oauth
    ```
 
 3. **Add upstream remote**
    ```bash
-   git remote add upstream git@gitlab.com:jacob-martella-web-design/artisanpack-ui/package-name.git
+   git remote add upstream https://github.com/ArtisanPack-UI/apple-oauth.git
    ```
 
 4. **Create feature branch**
@@ -465,7 +465,7 @@ Similar to GitHub process:
 
 5. **Submit patch**
    - Create GitLab issue (no account needed via email)
-   - Or email patch to: [your email or link to contribution email]
+   - Or email patch to: me@jacobmartella.com
    - Describe changes in issue/email
    - Attach `.patch` file
 

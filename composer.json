@@ -1,6 +1,6 @@
 {
   "name": "artisanpack-ui/apple-oauth",
-  "description": "Shared Apple (Sign in with Apple) OAuth2 authentication, token storage/refresh, and scope management that powers ArtisanPack UI's Apple service integrations.",
+  "description": "Initial scaffold for the shared Apple (Sign in with Apple) OAuth2 broker for ArtisanPack UI's Apple service integrations. No feature code yet — authentication, token storage/refresh, and scope management arrive in later releases.",
   "type": "library",
   "license": "MIT",
   "keywords": [

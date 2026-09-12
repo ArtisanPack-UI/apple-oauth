@@ -44,6 +44,11 @@ class AppleOAuthServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->mergeConfigFrom(
+            __DIR__ . '/../config/apple-oauth.php',
+            'apple-oauth',
+        );
+
         $this->app->singleton( 'apple-oauth', function ( $app ) {
             return new AppleOAuth();
         } );
@@ -58,6 +63,11 @@ class AppleOAuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Add package bootstrapping here.
+        if ( $this->app->runningInConsole() ) {
+            $this->publishes(
+                [ __DIR__ . '/../config/apple-oauth.php' => config_path( 'apple-oauth.php' ) ],
+                'apple-oauth-config',
+            );
+        }
     }
 }

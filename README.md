@@ -1,6 +1,6 @@
 # ArtisanPack UI — Apple OAuth
 
-Shared Apple (Sign in with Apple) OAuth2 authentication, token storage/refresh, and scope management that powers ArtisanPack UI's Apple service integrations (starting with calendar sync for `artisanpack-ui/bookings`).
+Scaffold for the shared Apple (Sign in with Apple) OAuth2 broker planned for ArtisanPack UI's Apple service integrations (starting with calendar sync for `artisanpack-ui/bookings`). Authentication, token storage/refresh, and scope management are not yet implemented — this release ships only the package skeleton.
 
 ## Installation
 
