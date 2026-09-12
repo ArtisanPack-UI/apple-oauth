@@ -12,7 +12,6 @@ beforeEach( function (): void {
     config()->set( 'apple-oauth.team_id', 'TEAM1234' );
     config()->set( 'apple-oauth.redirect_uri', 'https://example.test/oauth/apple/callback' );
     config()->set( 'apple-oauth.client_secret', 'signed-jwt-placeholder' );
-    config()->set( 'apple-oauth.scopes', [ 'name', 'email' ] );
 } );
 
 /**

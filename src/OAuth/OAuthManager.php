@@ -14,6 +14,7 @@ declare( strict_types=1 );
 namespace ArtisanPackUI\AppleOAuth\OAuth;
 
 use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
+use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -46,6 +47,7 @@ class OAuthManager
         protected Session $session,
         protected HttpFactory $http,
         protected ClientSecretGenerator $clientSecret,
+        protected ScopeRegistry $scopes,
     ) {
     }
 
@@ -60,7 +62,7 @@ class OAuthManager
      * @since 1.0.0
      *
      * @param  int|string                $userId    The user we are connecting an Apple ID to.
-     * @param  array<int, string>|null   $override  Explicit scopes; defaults to config.
+     * @param  array<int, string>|null   $override  Explicit scopes; defaults to the registry union.
      *
      * @throws OAuthException When required credentials are missing.
      */
@@ -73,7 +75,7 @@ class OAuthManager
             throw new OAuthException( __( 'Apple OAuth credentials are not configured.' ) );
         }
 
-        $scopes = $override ?? (array) $this->config->get( 'apple-oauth.scopes', [ 'name', 'email' ] );
+        $scopes = $override ?? $this->scopes->all();
 
         $state = Str::random( 40 );
         $nonce = Str::random( 40 );

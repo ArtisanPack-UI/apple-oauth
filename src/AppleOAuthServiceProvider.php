@@ -19,6 +19,7 @@ namespace ArtisanPackUI\AppleOAuth;
 
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
+use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
 use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
@@ -62,12 +63,15 @@ class AppleOAuthServiceProvider extends ServiceProvider
             );
         } );
 
+        $this->app->singleton( ScopeRegistry::class );
+
         $this->app->singleton( OAuthManager::class, function ( $app ) {
             return new OAuthManager(
                 $app->make( ConfigRepository::class ),
                 $app->make( 'session.store' ),
                 $app->make( HttpFactory::class ),
                 $app->make( ClientSecretGenerator::class ),
+                $app->make( ScopeRegistry::class ),
             );
         } );
 
@@ -84,6 +88,7 @@ class AppleOAuthServiceProvider extends ServiceProvider
                 $app->make( OAuthManager::class ),
                 $app->make( ClientSecretGenerator::class ),
                 $app->make( TokenManager::class ),
+                $app->make( ScopeRegistry::class ),
             );
         } );
     }
