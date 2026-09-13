@@ -95,6 +95,67 @@ it( 'refuses to build an authorization URL when credentials are missing', functi
     app( OAuthManager::class )->authorizationUrl( 1 );
 } )->throws( OAuthException::class );
 
+it( 'refuses to build an authorization URL when redirect_uri is missing', function (): void {
+    config()->set( 'apple-oauth.redirect_uri', '' );
+
+    app( OAuthManager::class )->authorizationUrl( 1 );
+} )->throws( OAuthException::class );
+
+it( 'rejects an id_token that is not a three-segment JWT', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'access_token' => 'apple-access-token',
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
+            'id_token'     => 'only.two-parts',
+        ], 200 ),
+    ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'malformed' );
+
+it( 'rejects an id_token whose payload segment is not valid base64', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    // PHP's base64_decode() with strict=true rejects any character outside the
+    // base64/base64url alphabet, so a `!` in the payload segment fails cleanly.
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'access_token' => 'apple-access-token',
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
+            'id_token'     => 'header.!!!not-base64!!!.signature',
+        ], 200 ),
+    ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'base64' );
+
+it( 'rejects an id_token whose payload is not a JSON object', function (): void {
+    $manager = app( OAuthManager::class );
+    $manager->authorizationUrl( 1 );
+    $state = session( 'apple-oauth.state' );
+
+    $b64 = fn ( string $s ): string => rtrim( strtr( base64_encode( $s ), '+/', '-_' ), '=' );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'access_token' => 'apple-access-token',
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
+            'id_token'     => $b64( '{"alg":"ES256"}' ) . '.' . $b64( '"a bare string, not a JSON object"' ) . '.sig',
+        ], 200 ),
+    ] );
+
+    $manager->handleCallback( 'code', $state );
+} )->throws( OAuthException::class, 'JSON object' );
+
 it( 'exchanges the code for tokens and returns a TokenResponse with the id_token identity', function (): void {
     $manager = app( OAuthManager::class );
     $manager->authorizationUrl( 7 );

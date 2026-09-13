@@ -240,6 +240,23 @@ it( 'rejects an EC key on a non-P-256 curve so an unverifiable signature is neve
     app( ClientSecretGenerator::class )->generate();
 } )->throws( OAuthException::class, 'P-256' );
 
+it( 'keys the cache by (team_id, key_id, client_id) so a credential swap mints a fresh JWT', function (): void {
+    $generator = app( ClientSecretGenerator::class );
+
+    $first = $generator->generate();
+
+    // Swap the client_id — a distinct Services ID must produce a distinct JWT
+    // (different `sub` claim), not a stale cache hit under the old key.
+    config()->set( 'apple-oauth.client_id', 'com.example.other-service' );
+
+    $second = $generator->generate();
+
+    expect( $second )->not->toBe( $first );
+
+    $claims = json_decode( b64UrlDecode( explode( '.', $second )[ 1 ] ), true );
+    expect( $claims[ 'sub' ] )->toBe( 'com.example.other-service' );
+} );
+
 it( 'falls back to the default TTL when a nonsense value is configured', function (): void {
     config()->set( 'apple-oauth.client_secret_ttl', 0 );
 
