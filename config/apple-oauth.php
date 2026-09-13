@@ -22,7 +22,10 @@ return [
     | runtime. `config` (the default) reads credentials from this file /
     | environment variables and is read-only. `database` reads and writes
     | encrypted rows in the `apple_configurations` table, letting a CMS UI
-    | or admin panel manage credentials without editing files.
+    | or admin panel manage credentials without editing files. `cms` bridges
+    | to `artisanpack-ui/cms-framework`'s Settings module so credentials live
+    | alongside every other site-level setting the CMS manages; only usable
+    | when the framework is installed.
     |
     | OAuth tokens (access/refresh/id) are NEVER stored here; they live on
     | the `apple_connections` table keyed by user.
