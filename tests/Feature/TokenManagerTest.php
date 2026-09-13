@@ -208,6 +208,27 @@ it( 'refreshes an expired access token transparently and persists the new one', 
     } );
 } );
 
+it( 'preserves the stored refresh token when a refresh response omits it', function (): void {
+    $manager    = app( TokenManager::class );
+    $connection = $manager->store( tokenResponse( [
+        'expiresAt' => Carbon::now()->subMinute(),
+    ] ) );
+
+    Http::fake( [
+        'https://appleid.apple.com/auth/token' => Http::response( [
+            'access_token' => 'refreshed',
+            'token_type'   => 'Bearer',
+            'expires_in'   => 3600,
+        ], 200 ),
+    ] );
+
+    $manager->refresh( $connection );
+
+    $connection->refresh();
+    expect( $connection->refresh_token )->toBe( 'apple-refresh-token' );
+    expect( $connection->access_token )->toBe( 'refreshed' );
+} );
+
 it( 'rotates the refresh token when Apple returns a new one', function (): void {
     $manager    = app( TokenManager::class );
     $connection = $manager->store( tokenResponse( [
