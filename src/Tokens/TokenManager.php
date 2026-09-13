@@ -13,6 +13,7 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth\Tokens;
 
+use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
 use ArtisanPackUI\AppleOAuth\Exceptions\TokenRefreshException;
 use ArtisanPackUI\AppleOAuth\Models\AppleConnection;
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
@@ -45,6 +46,7 @@ class TokenManager
         protected ConfigRepository $config,
         protected HttpFactory $http,
         protected ClientSecretGenerator $clientSecret,
+        protected ConfigurationRepository $credentials,
     ) {
     }
 
@@ -128,13 +130,13 @@ class TokenManager
             throw new TokenRefreshException( __( 'No refresh token stored for this connection.' ) );
         }
 
-        $clientId = (string) $this->config->get( 'apple-oauth.client_id', '' );
+        $clientId = (string) ( $this->credentials->getClientId() ?? '' );
 
         if ( '' === $clientId ) {
             throw new TokenRefreshException( __( 'Apple OAuth credentials are not configured.' ) );
         }
 
-        $clientSecret = (string) $this->config->get( 'apple-oauth.client_secret', '' );
+        $clientSecret = (string) ( $this->credentials->getClientSecret() ?? '' );
 
         if ( '' === $clientSecret ) {
             $clientSecret = $this->clientSecret->generate();
