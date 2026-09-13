@@ -17,12 +17,16 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth;
 
+use ArtisanPackUI\AppleOAuth\Configuration\ConfigDriver;
+use ArtisanPackUI\AppleOAuth\Configuration\DatabaseDriver;
+use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
 use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
 use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
 
@@ -56,10 +60,34 @@ class AppleOAuthServiceProvider extends ServiceProvider
             'apple-oauth',
         );
 
+        $this->app->singleton( ConfigDriver::class, function ( Application $app ): ConfigDriver {
+            return new ConfigDriver( $app->make( ConfigRepository::class ) );
+        } );
+
+        $this->app->singleton( DatabaseDriver::class, function ( Application $app ): DatabaseDriver {
+            return new DatabaseDriver(
+                $app[ 'db' ]->connection(),
+                $app[ 'encrypter' ],
+            );
+        } );
+
+        // Bound (not singleton) so `config('apple-oauth.driver')` is re-read
+        // on each resolve; the concrete driver classes are singletons in
+        // their own right and hold the per-request credential cache.
+        $this->app->bind( ConfigurationRepository::class, function ( Application $app ): ConfigurationRepository {
+            $driver = $app->make( ConfigRepository::class )->get( 'apple-oauth.driver', 'config' );
+
+            return match ( $driver ) {
+                'database' => $app->make( DatabaseDriver::class ),
+                default    => $app->make( ConfigDriver::class ),
+            };
+        } );
+
         $this->app->singleton( ClientSecretGenerator::class, function ( $app ) {
             return new ClientSecretGenerator(
                 $app->make( ConfigRepository::class ),
                 $app->make( CacheRepository::class ),
+                $app->make( ConfigurationRepository::class ),
             );
         } );
 
@@ -72,6 +100,7 @@ class AppleOAuthServiceProvider extends ServiceProvider
                 $app->make( HttpFactory::class ),
                 $app->make( ClientSecretGenerator::class ),
                 $app->make( ScopeRegistry::class ),
+                $app->make( ConfigurationRepository::class ),
             );
         } );
 
@@ -80,6 +109,7 @@ class AppleOAuthServiceProvider extends ServiceProvider
                 $app->make( ConfigRepository::class ),
                 $app->make( HttpFactory::class ),
                 $app->make( ClientSecretGenerator::class ),
+                $app->make( ConfigurationRepository::class ),
             );
         } );
 

@@ -15,6 +15,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Credential driver
+    |--------------------------------------------------------------------------
+    |
+    | Selects which `ConfigurationRepository` implementation resolves at
+    | runtime. `config` (the default) reads credentials from this file /
+    | environment variables and is read-only. `database` reads and writes
+    | encrypted rows in the `apple_configurations` table, letting a CMS UI
+    | or admin panel manage credentials without editing files.
+    |
+    | OAuth tokens (access/refresh/id) are NEVER stored here; they live on
+    | the `apple_connections` table keyed by user.
+    |
+    */
+
+    'driver' => env( 'APPLE_OAUTH_DRIVER', 'config' ),
+
+    /*
+    |--------------------------------------------------------------------------
     | Client credentials
     |--------------------------------------------------------------------------
     |

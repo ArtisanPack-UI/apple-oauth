@@ -13,6 +13,7 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth\OAuth;
 
+use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
 use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
 use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
@@ -48,6 +49,7 @@ class OAuthManager
         protected HttpFactory $http,
         protected ClientSecretGenerator $clientSecret,
         protected ScopeRegistry $scopes,
+        protected ConfigurationRepository $credentials,
     ) {
     }
 
@@ -68,8 +70,8 @@ class OAuthManager
      */
     public function authorizationUrl( int|string $userId, ?array $override = null ): string
     {
-        $clientId    = (string) $this->config->get( 'apple-oauth.client_id', '' );
-        $redirectUri = (string) $this->config->get( 'apple-oauth.redirect_uri', '' );
+        $clientId    = (string) ( $this->credentials->getClientId() ?? '' );
+        $redirectUri = (string) ( $this->credentials->getRedirectUri() ?? '' );
 
         if ( '' === $clientId || '' === $redirectUri ) {
             throw new OAuthException( __( 'Apple OAuth credentials are not configured.' ) );
@@ -142,9 +144,9 @@ class OAuthManager
             throw new OAuthException( __( 'OAuth session missing user context.' ) );
         }
 
-        $clientId     = (string) $this->config->get( 'apple-oauth.client_id', '' );
-        $redirectUri  = (string) $this->config->get( 'apple-oauth.redirect_uri', '' );
-        $clientSecret = (string) $this->config->get( 'apple-oauth.client_secret', '' );
+        $clientId     = (string) ( $this->credentials->getClientId() ?? '' );
+        $redirectUri  = (string) ( $this->credentials->getRedirectUri() ?? '' );
+        $clientSecret = (string) ( $this->credentials->getClientSecret() ?? '' );
 
         if ( '' === $clientId || '' === $redirectUri ) {
             throw new OAuthException( __( 'Apple OAuth credentials are not configured.' ) );

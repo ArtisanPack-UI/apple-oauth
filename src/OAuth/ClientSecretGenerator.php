@@ -13,6 +13,7 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth\OAuth;
 
+use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
 use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
@@ -44,6 +45,7 @@ class ClientSecretGenerator
     public function __construct(
         protected ConfigRepository $config,
         protected CacheRepository $cache,
+        protected ConfigurationRepository $credentials,
     ) {
     }
 
@@ -57,9 +59,9 @@ class ClientSecretGenerator
      */
     public function generate(): string
     {
-        $teamId   = (string) $this->config->get( 'apple-oauth.team_id', '' );
-        $keyId    = (string) $this->config->get( 'apple-oauth.key_id', '' );
-        $clientId = (string) $this->config->get( 'apple-oauth.client_id', '' );
+        $teamId   = (string) ( $this->credentials->getTeamId() ?? '' );
+        $keyId    = (string) ( $this->credentials->getKeyId() ?? '' );
+        $clientId = (string) ( $this->credentials->getClientId() ?? '' );
 
         if ( '' === $teamId || '' === $keyId || '' === $clientId ) {
             throw new OAuthException(
@@ -92,9 +94,9 @@ class ClientSecretGenerator
      */
     public function forget(): void
     {
-        $teamId   = (string) $this->config->get( 'apple-oauth.team_id', '' );
-        $keyId    = (string) $this->config->get( 'apple-oauth.key_id', '' );
-        $clientId = (string) $this->config->get( 'apple-oauth.client_id', '' );
+        $teamId   = (string) ( $this->credentials->getTeamId() ?? '' );
+        $keyId    = (string) ( $this->credentials->getKeyId() ?? '' );
+        $clientId = (string) ( $this->credentials->getClientId() ?? '' );
 
         $cacheKey = self::CACHE_KEY_PREFIX . hash( 'sha256', $teamId . '|' . $keyId . '|' . $clientId );
 
@@ -171,7 +173,7 @@ class ClientSecretGenerator
      */
     protected function loadPrivateKey()
     {
-        $raw = (string) $this->config->get( 'apple-oauth.private_key', '' );
+        $raw = (string) ( $this->credentials->getPrivateKey() ?? '' );
 
         if ( '' === $raw ) {
             throw new OAuthException( __( 'Apple OAuth private_key is not configured.' ) );
