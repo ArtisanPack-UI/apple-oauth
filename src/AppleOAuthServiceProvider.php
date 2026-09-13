@@ -21,9 +21,11 @@ use ArtisanPackUI\AppleOAuth\Configuration\CmsSettingsDriver;
 use ArtisanPackUI\AppleOAuth\Configuration\ConfigDriver;
 use ArtisanPackUI\AppleOAuth\Configuration\DatabaseDriver;
 use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
+use ArtisanPackUI\AppleOAuth\Contracts\TokenProvider;
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
 use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
+use ArtisanPackUI\AppleOAuth\Tokens\OAuthTokenProvider;
 use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
@@ -119,12 +121,29 @@ class AppleOAuthServiceProvider extends ServiceProvider
             );
         } );
 
+        // The downstream seam: a small contract that hands back a
+        // currently-valid access token for an AppleConnection. Bound as a
+        // singleton against its default implementation so consumers can
+        // type-hint the contract, and apps or tests can rebind it to a
+        // fake without booting the OAuth machinery.
+        $this->app->singleton( TokenProvider::class, function ( $app ) {
+            return new OAuthTokenProvider( $app->make( TokenManager::class ) );
+        } );
+
+        $this->app->singleton( AppleOAuthManager::class, function ( $app ) {
+            return new AppleOAuthManager(
+                $app->make( TokenProvider::class ),
+                $app->make( HttpFactory::class ),
+            );
+        } );
+
         $this->app->singleton( 'apple-oauth', function ( $app ) {
             return new AppleOAuth(
                 $app->make( OAuthManager::class ),
                 $app->make( ClientSecretGenerator::class ),
                 $app->make( TokenManager::class ),
                 $app->make( ScopeRegistry::class ),
+                $app->make( AppleOAuthManager::class ),
             );
         } );
     }

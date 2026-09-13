@@ -40,6 +40,7 @@ class AppleOAuth
         protected ClientSecretGenerator $clientSecret,
         protected TokenManager $tokens,
         protected ScopeRegistry $scopes,
+        protected AppleOAuthManager $manager,
     ) {
     }
 
@@ -51,6 +52,17 @@ class AppleOAuth
     public function oauth(): OAuthManager
     {
         return $this->oauth;
+    }
+
+    /**
+     * Access the consumer-facing manager (authorized HTTP requests +
+     * the token-provider seam) downstream Apple API clients build on.
+     *
+     * @since 1.0.0
+     */
+    public function manager(): AppleOAuthManager
+    {
+        return $this->manager;
     }
 
     /**
