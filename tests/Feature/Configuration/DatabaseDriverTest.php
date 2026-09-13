@@ -4,6 +4,7 @@ declare( strict_types=1 );
 
 use ArtisanPackUI\AppleOAuth\Configuration\DatabaseDriver;
 use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -42,6 +43,68 @@ it( 'persists and reads every credential, encrypting the sensitive columns', fun
     expect( $stored->private_key )->not->toBe( "-----BEGIN EC PRIVATE KEY-----\nabc\n-----END EC PRIVATE KEY-----" );
     expect( $stored->client_secret )->not->toBe( 'preminted.jwt.here' );
     expect( $stored->client_id )->toBe( 'com.example.service' );
+} );
+
+it( 'rejects a duplicate singleton row so a concurrent initial save cannot create a second one', function (): void {
+    /** @var DatabaseDriver $driver */
+    $driver = app( ConfigurationRepository::class );
+
+    $driver->save( [
+        'client_id'    => 'com.example.first',
+        'redirect_uri' => 'https://example.test/callback',
+        'team_id'      => 'T1',
+        'key_id'       => 'K1',
+        'private_key'  => 'pk-1',
+    ] );
+
+    // Simulate a second writer that raced past the initial existence check
+    // in a naive implementation and tried to insert its own credential row.
+    // The unique index on `singleton` must reject it so `first()` can never
+    // return stale credentials from a duplicate row.
+    expect( fn () => DB::table( 'apple_configurations' )->insert( [
+        'singleton'    => 'default',
+        'client_id'    => 'com.example.second',
+        'redirect_uri' => 'https://example.test/callback',
+        'created_at'   => now(),
+        'updated_at'   => now(),
+    ] ) )->toThrow( QueryException::class );
+
+    expect( DB::table( 'apple_configurations' )->count() )->toBe( 1 );
+} );
+
+it( 'preserves created_at across subsequent saves and only bumps updated_at', function (): void {
+    /** @var DatabaseDriver $driver */
+    $driver = app( ConfigurationRepository::class );
+
+    $driver->save( [
+        'client_id'    => 'com.example.service',
+        'redirect_uri' => 'https://example.test/callback',
+        'team_id'      => 'T1',
+        'key_id'       => 'K1',
+        'private_key'  => 'pk-1',
+    ] );
+
+    $initial = DB::table( 'apple_configurations' )->first();
+
+    // Ensure any DATETIME-resolution timer would tick between the two writes.
+    sleep( 1 );
+
+    app()->forgetInstance( DatabaseDriver::class );
+    /** @var DatabaseDriver $driver */
+    $driver = app( ConfigurationRepository::class );
+
+    $driver->save( [
+        'client_id'    => 'com.example.service',
+        'redirect_uri' => 'https://example.test/callback',
+        'team_id'      => 'T2',
+        'key_id'       => 'K2',
+        'private_key'  => 'pk-2',
+    ] );
+
+    $updated = DB::table( 'apple_configurations' )->first();
+
+    expect( $updated->created_at )->toBe( $initial->created_at );
+    expect( $updated->updated_at )->not->toBe( $initial->updated_at );
 } );
 
 it( 'updates the existing row on subsequent saves', function (): void {

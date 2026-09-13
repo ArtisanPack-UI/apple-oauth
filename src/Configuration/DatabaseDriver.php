@@ -34,6 +34,14 @@ use Throwable;
  */
 class DatabaseDriver implements ConfigurationRepository
 {
+    /**
+     * Fixed value written into the `singleton` column, backed by a unique
+     * index in the migration, so the table can hold at most one credential
+     * row. Anchoring the upsert on it makes save() atomic against
+     * concurrent writers.
+     */
+    protected const SINGLETON_KEY = 'default';
+
     protected string $table = 'apple_configurations';
 
     /**
@@ -79,26 +87,40 @@ class DatabaseDriver implements ConfigurationRepository
 
     public function save( array $credentials ): void
     {
-        $row = [
-            'client_id'     => $credentials[ 'client_id' ] ?? null,
-            'team_id'       => $credentials[ 'team_id' ] ?? null,
-            'key_id'        => $credentials[ 'key_id' ] ?? null,
-            'private_key'   => $this->encryptOrNull( $credentials[ 'private_key' ] ?? null ),
-            'redirect_uri'  => $credentials[ 'redirect_uri' ] ?? null,
-            'client_secret' => $this->encryptOrNull( $credentials[ 'client_secret' ] ?? null ),
-            'updated_at'    => now(),
-        ];
+        $now = now();
 
-        $existing = $this->connection->table( $this->table )->first();
-
-        if ( $existing ) {
-            $this->connection->table( $this->table )
-                ->where( 'id', $existing->id )
-                ->update( $row );
-        } else {
-            $row[ 'created_at' ] = now();
-            $this->connection->table( $this->table )->insert( $row );
-        }
+        // upsert() maps to INSERT ... ON CONFLICT DO UPDATE (SQLite/Postgres)
+        // and INSERT ... ON DUPLICATE KEY UPDATE (MySQL), so two concurrent
+        // initial saves cannot both create a row — the second collides on
+        // the `singleton` unique index and falls through to the UPDATE
+        // branch. `created_at` is deliberately omitted from the update
+        // column list so it is preserved on subsequent saves and only
+        // written on the initial insert.
+        $this->connection->table( $this->table )->upsert(
+            [
+                [
+                    'singleton'     => self::SINGLETON_KEY,
+                    'client_id'     => $credentials[ 'client_id' ] ?? null,
+                    'team_id'       => $credentials[ 'team_id' ] ?? null,
+                    'key_id'        => $credentials[ 'key_id' ] ?? null,
+                    'private_key'   => $this->encryptOrNull( $credentials[ 'private_key' ] ?? null ),
+                    'redirect_uri'  => $credentials[ 'redirect_uri' ] ?? null,
+                    'client_secret' => $this->encryptOrNull( $credentials[ 'client_secret' ] ?? null ),
+                    'created_at'    => $now,
+                    'updated_at'    => $now,
+                ],
+            ],
+            [ 'singleton' ],
+            [
+                'client_id',
+                'team_id',
+                'key_id',
+                'private_key',
+                'redirect_uri',
+                'client_secret',
+                'updated_at',
+            ],
+        );
 
         $this->cache = null;
     }

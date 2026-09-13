@@ -12,6 +12,12 @@ return new class extends Migration
     {
         Schema::create( 'apple_configurations', function ( Blueprint $table ): void {
             $table->id();
+
+            // Fixed sentinel that constrains the table to a single credential
+            // row so DatabaseDriver::save() can atomically upsert without a
+            // read-then-write race under concurrent writers.
+            $table->string( 'singleton' )->default( 'default' );
+
             $table->string( 'client_id' )->nullable();
             $table->string( 'team_id' )->nullable();
             $table->string( 'key_id' )->nullable();
@@ -19,6 +25,8 @@ return new class extends Migration
             $table->string( 'redirect_uri' )->nullable();
             $table->text( 'client_secret' )->nullable();
             $table->timestamps();
+
+            $table->unique( 'singleton' );
         } );
     }
 
