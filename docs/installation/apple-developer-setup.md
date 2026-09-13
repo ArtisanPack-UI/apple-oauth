@@ -31,11 +31,11 @@ Sign in with Apple keys are always scoped to an App ID first, and the Services I
     - Tick **Sign in with Apple** to enable the capability.
     - Click **Configure** next to it.
     - Under **Primary App ID**, select the App ID from step 2.
-    - Under **Domains and Subdomains**, add the domain of the app that will host the redirect URI (e.g. `app.acme.test`, `acme.example.com`). Apple validates these; localhost and `.test` domains work in development but must resolve.
-    - Under **Return URLs**, add the absolute callback URL your app will handle, e.g. `https://app.acme.test/apple/callback`. This is your `APPLE_OAUTH_REDIRECT_URI`.
+    - Under **Domains and Subdomains**, add the public HTTPS domain that will host the redirect URI (e.g. `acme.example.com`). Apple verifies each domain by fetching `https://{domain}/.well-known/apple-developer-domain-association.txt`, so the hostname must be publicly reachable and TLS-terminated — `localhost` and unreachable `.test` hostnames will fail verification.
+    - Under **Return URLs**, add the absolute HTTPS callback URL your app will handle, e.g. `https://acme.example.com/apple/callback`. This is your `APPLE_OAUTH_REDIRECT_URI`.
     - Save.
 
-> Apple will not accept an `http://` return URL — the redirect must be HTTPS. In development, use a tool like Laravel Herd's per-site TLS or `valet secure`.
+> Apple will not accept an `http://` return URL — the redirect must be HTTPS. For local development, expose your site through an HTTPS tunnel (ngrok, Expose, cloudflared) and register the tunnel's hostname on the Services ID, or register a real dev subdomain that resolves publicly and TLS-terminates. A `.test` hostname served only through your local resolver will not pass Apple's domain-association fetch.
 
 ## 4. Create the Sign in with Apple key (`.p8`)
 
@@ -66,7 +66,7 @@ APPLE_OAUTH_CLIENT_ID=com.acme.app.web
 APPLE_OAUTH_TEAM_ID=ABCDE12345
 APPLE_OAUTH_KEY_ID=XXXXXXXXXX
 APPLE_OAUTH_PRIVATE_KEY=/Users/you/.config/artisanpack/AuthKey_XXXXXXXXXX.p8
-APPLE_OAUTH_REDIRECT_URI=https://app.acme.test/apple/callback
+APPLE_OAUTH_REDIRECT_URI=https://acme.example.com/apple/callback
 ```
 
 `APPLE_OAUTH_PRIVATE_KEY` accepts either an absolute filesystem path to a `.p8` file (recommended) or an inline PEM string. Prefer the path form: `php artisan config:cache` freezes `env()` reads into `bootstrap/cache/config.php`, so an inline PEM would be persisted in cleartext inside the cache file. A path stores only the string; the key bytes stay wherever you point at.

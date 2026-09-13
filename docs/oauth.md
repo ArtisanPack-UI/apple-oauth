@@ -89,7 +89,7 @@ Details: [OAuth → Callback](Oauth/Callback).
 
 ## The one-shot `user` payload
 
-Apple only releases the display name on the **initial** authorization for a given Services ID. Subsequent authorizations for the same user never re-emit the `user` field, even after a full sign-out. Persist the name on the first callback — [`TokenManager::store()`](Tokens) preserves the existing `apple_user_id` / `email` on re-authorizations, so you don't lose them if the second-round `TokenResponse` arrives with a partial profile.
+Apple only releases the display name on the **initial** authorization for a given Services ID. Subsequent authorizations for the same user never re-emit the `user` field, even after a full sign-out. **The name is your application's to persist**: [`TokenManager::store()`](Tokens) writes only `sub`, `email`, tokens, expiry, and status — the `apple_connections` schema has no name columns. Copy `firstName` / `lastName` off `$response->profile` into your own `users` table (or wherever you keep display names) inside the callback. [`TokenManager::store()`](Tokens) does preserve the existing `apple_user_id` / `email` on re-authorizations, so those aren't lost when the second-round `TokenResponse` arrives with a partial profile.
 
 Details: [OAuth → Callback](Oauth/Callback) and [Connection Model](Connection-Model).
 

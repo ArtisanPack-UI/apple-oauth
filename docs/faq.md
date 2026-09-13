@@ -108,19 +108,11 @@ Usual causes:
 
 ### How do I add a new scope?
 
-Apple only exposes `name` and `email` today, and the package's baseline requests both. Additional scopes reserved for future Apple-issued grants (or a bring-your-own baseline in a downstream broker) can be contributed via the `ap.apple-oauth.scopes` filter hook:
-
-```php
-use ArtisanPackUI\Hooks\Facades\Filter;
-
-Filter::add( 'ap.apple-oauth.scopes', fn ( array $s ) => [ ...$s, 'my.custom.scope' ] );
-```
-
-Or `AppleOAuth::scopes()->register( 'my.custom.scope' )` from app code. See [Scopes](Scopes).
+Today you can't. Apple only exposes `name` and `email`, and Apple rejects any authorization request that includes an unrecognized scope — a registration like `Filter::add( 'ap.apple-oauth.scopes', fn ( array $s ) => [ ...$s, 'foo' ] )` will break sign-in as soon as `authorizationUrl()` is built. The `ap.apple-oauth.scopes` filter and `AppleOAuth::scopes()->register()` exist as a forward-compatible seam for the day Apple issues additional scopes (or for a downstream broker that swaps the authorization endpoint entirely). See [Scopes](Scopes).
 
 ### Is there incremental consent like Google's?
 
-No. Apple's scope surface is fixed at `name` + `email`, so there's nothing to incrementally consent to. The registry exposes `missing()` / `hasAllRequired()` for API parity, but for a real Sign in with Apple flow the answer is always "yes, granted."
+No. Apple's scope surface is fixed at `name` + `email`, so there's nothing to incrementally consent to. The registry exposes `missing()` / `hasAllRequired()` for API parity; the `scopes` column on `apple_connections` is nullable and the OAuth flow doesn't populate it, so on a fresh row `grantedScopes()` returns `[]`, `missing()` returns `['name', 'email']`, and `hasAllRequired()` returns `false` until you set `$connection->scopes` yourself. Every real Sign in with Apple sign-in has both scopes granted — the helpers just don't know it unless you tell them.
 
 ## Runtime
 

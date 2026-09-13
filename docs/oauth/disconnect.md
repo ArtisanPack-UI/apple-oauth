@@ -77,14 +77,19 @@ Neither `markDisconnected()` nor the auto-disconnect path calls Apple's revoke e
 
 If you need remote revocation, POST to `https://appleid.apple.com/auth/revoke` before calling `markDisconnected()`:
 
+Resolve `client_id` through the **same active credential driver** the signer uses — reading it from `config( 'apple-oauth.client_id' )` alone will send Apple an empty or stale value when `apple-oauth.driver` is `database` or `cms`, and Apple will reject the pair as `invalid_client` because the JWT's `sub` claim won't match:
+
 ```php
+use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
 use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
 use Illuminate\Support\Facades\Http;
 
-$clientSecret = AppleOAuth::clientSecret()->generate();
+$credentials  = app( ConfigurationRepository::class );
+$clientId     = $credentials->getClientId();
+$clientSecret = $credentials->getClientSecret() ?: AppleOAuth::clientSecret()->generate();
 
 Http::asForm()->post( 'https://appleid.apple.com/auth/revoke', [
-    'client_id'       => config( 'apple-oauth.client_id' ),
+    'client_id'       => $clientId,
     'client_secret'   => $clientSecret,
     'token'           => $connection->refresh_token,
     'token_type_hint' => 'refresh_token',

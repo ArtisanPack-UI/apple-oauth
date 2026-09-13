@@ -4,7 +4,9 @@ title: Exceptions
 
 # Exceptions
 
-`artisanpack-ui/apple-oauth` throws two exception types, both extending `RuntimeException`. Catch by type — the messages are stable enough to display to end users (after translation) but code should switch on the class, not the string.
+`artisanpack-ui/apple-oauth` throws two exception types, both extending `RuntimeException`. Catch by type — code should switch on the class, not on the message string.
+
+> **Do not pass `$e->getMessage()` straight to the browser.** The messages below embed interpolated diagnostic values (`<error>` from Apple's response body, `<iss>` from a mismatched id_token issuer, `<path>` for a missing `.p8` file on the deploy host) that reveal internal state. Log the raw exception for operators (`Log::warning( ..., [ 'exception' => $e ] )`) and render a fixed, translated user-facing message from the exception **class**, not from `$e->getMessage()`. The tables here are the operator-facing reference; treat every message as internal.
 
 ## `OAuthException`
 

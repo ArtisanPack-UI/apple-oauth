@@ -64,7 +64,7 @@ APPLE_OAUTH_CLIENT_ID=com.acme.app.web
 APPLE_OAUTH_TEAM_ID=ABCDE12345
 APPLE_OAUTH_KEY_ID=XXXXXXXXXX
 APPLE_OAUTH_PRIVATE_KEY=/Users/you/.config/artisanpack/AuthKey_XXXXXXXXXX.p8
-APPLE_OAUTH_REDIRECT_URI=https://app.acme.test/apple/callback
+APPLE_OAUTH_REDIRECT_URI=https://acme.example.com/apple/callback
 
 # Client-secret JWT (defaults are usually fine)
 # APPLE_OAUTH_CLIENT_SECRET_TTL=3600

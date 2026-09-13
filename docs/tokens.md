@@ -181,12 +181,17 @@ Http::fake( [
     ] ),
 ] );
 
-$connection = AppleConnection::factory()->create( [
-    'access_token'  => 'expired',
-    'refresh_token' => 'a-refresh-token',
-    'expires_at'    => now()->subMinute(),
-    'status'        => 'connected',
-] );
+// The package does NOT ship an AppleConnection factory — define one in
+// your consuming app (`database/factories/AppleConnectionFactory.php`)
+// and add `use HasFactory` to a subclass, OR build the row directly:
+$connection = new AppleConnection();
+$connection->user_id       = $user->id;
+$connection->apple_user_id = 'test-sub';
+$connection->access_token  = 'expired';
+$connection->refresh_token = 'a-refresh-token';
+$connection->expires_at    = now()->subMinute();
+$connection->status        = AppleConnection::STATUS_CONNECTED;
+$connection->save();
 
 expect( AppleOAuth::tokens()->getValidAccessToken( $connection ) )->toBe( 'new-token' );
 ```

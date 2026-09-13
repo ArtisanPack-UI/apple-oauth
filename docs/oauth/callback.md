@@ -28,6 +28,7 @@ The route itself:
 use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
 use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 Route::post( '/apple/callback', function ( Request $request ) {
     try {
@@ -37,7 +38,14 @@ Route::post( '/apple/callback', function ( Request $request ) {
             userPayload:   $request->input( 'user' ),
         );
     } catch ( OAuthException $e ) {
-        return redirect( '/' )->withErrors( [ 'apple' => $e->getMessage() ] );
+        // Log for operators; do NOT surface $e->getMessage() to the browser —
+        // it embeds Apple's internal error codes, id_token issuer values, and
+        // .p8 filesystem paths. Render a fixed, translated message instead.
+        Log::warning( 'Apple OAuth callback failed', [ 'exception' => $e ] );
+
+        return redirect( '/' )->withErrors( [
+            'apple' => __( 'We could not complete the Sign in with Apple flow. Please try again.' ),
+        ] );
     }
 
     $connection = AppleOAuth::tokens()->store( $response );
@@ -103,7 +111,20 @@ Apple sends the `user` field **only on the first authorization** for a given Ser
 
 `buildProfile()` extracts `firstName` and `lastName` from `name`. It **discards** the `email` from the `user` payload — the id_token's `email` claim is the canonical source since it comes from the server-to-server exchange rather than the browser-mediated form POST.
 
-On the second and subsequent authorizations, Apple omits the `user` field entirely. `handleCallback()` receives `null` for `$userPayload` and the returned `AppleUserProfile` will have `firstName === null` and `lastName === null`. Persist the name on the first callback — [`TokenManager::store()`](Tokens) preserves the existing `email` and `apple_user_id` on updates, so you don't lose them if the second-round profile arrives partial.
+**The name is your application's to persist.** [`TokenManager::store()`](Tokens) writes the `sub`, `email`, tokens, expiry, and status into `apple_connections` — the table has no name columns. Copy `firstName` / `lastName` into your own `users` table (or wherever you keep display names) inside the callback handler, before calling `store()` or right after, guarded by `hasName()`:
+
+```php
+$connection = AppleOAuth::tokens()->store( $response );
+
+if ( $response->profile->hasName() ) {
+    $user = $request->user();
+    $user->first_name ??= $response->profile->firstName;
+    $user->last_name  ??= $response->profile->lastName;
+    $user->save();
+}
+```
+
+On the second and subsequent authorizations, Apple omits the `user` field entirely. `handleCallback()` receives `null` for `$userPayload` and the returned `AppleUserProfile` will have `firstName === null` and `lastName === null`. There is no way to fetch the name back from Apple later, so the first callback is your only chance. [`TokenManager::store()`](Tokens) preserves the existing `email` and `apple_user_id` on updates, so those don't get nulled out when the second-round profile arrives partial.
 
 ## Refresh-token preservation
 

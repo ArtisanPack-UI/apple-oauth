@@ -58,12 +58,12 @@ AppleOAuth::clientSecret()->forget();
 
 Two config keys control the lifetime:
 
-| Key | Env | Default | Clamped to |
+| Key | Env | Default | Behavior for invalid values |
 |---|---|---|---|
-| `apple-oauth.client_secret_ttl` | `APPLE_OAUTH_CLIENT_SECRET_TTL` | `3600` | `[60, 15_777_000]` (60s to Apple's six-month max) |
-| `apple-oauth.client_secret_leeway` | `APPLE_OAUTH_CLIENT_SECRET_LEEWAY` | `30` | Never allowed to equal or exceed the TTL |
+| `apple-oauth.client_secret_ttl` | `APPLE_OAUTH_CLIENT_SECRET_TTL` | `3600` | Any value below `60` falls back to the `3600` default (not clamped to `60`). Any value above `15_777_000` (Apple's six-month max) is clamped to `15_777_000`. |
+| `apple-oauth.client_secret_leeway` | `APPLE_OAUTH_CLIENT_SECRET_LEEWAY` | `30` | Negative values fall back to the `30` default. A value that would equal or exceed the resolved TTL is reduced to `floor( TTL / 2 )` so the effective cache lifetime is always positive. |
 
-Values below the minimums fall back to defaults; values above the maxima are clamped. So `APPLE_OAUTH_CLIENT_SECRET_TTL=30` is treated as `3600` (the minimum kicks in), and `APPLE_OAUTH_CLIENT_SECRET_TTL=99999999` is clamped to `15_777_000`.
+So `APPLE_OAUTH_CLIENT_SECRET_TTL=30` is treated as `3600` (below-minimum fallback, not a clamp to 60), and `APPLE_OAUTH_CLIENT_SECRET_TTL=99999999` is clamped to `15_777_000`.
 
 Why the six-month max? Apple documents it as the cap for `client_secret` JWTs. Shorter windows keep the blast radius of a leaked JWT small; the default 3600 is a reasonable middle ground.
 

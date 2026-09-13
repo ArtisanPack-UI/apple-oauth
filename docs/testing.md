@@ -208,18 +208,18 @@ expect( $jwt )->toBeString()->toContain( '.' );
 
 ## Testing scope contributions
 
-Register a scope inside the test and assert `all()` picks it up:
+Register a scope inside the test and assert `all()` picks it up. Since Apple only exposes `name` + `email` today, a fictional scope like `'fixture.scope'` is only safe in a unit test — the registry doesn't call Apple, so the value is inert here. Never register a fictional scope against production Apple, and never assert an integration path that actually builds an authorization URL with a bogus scope.
 
 ```php
 use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
 use ArtisanPackUI\Hooks\Facades\Filter;
 
 Filter::add( 'ap.apple-oauth.scopes', function ( array $scopes ): array {
-    $scopes[] = 'my.custom.scope';
+    $scopes[] = 'fixture.scope';
     return $scopes;
 } );
 
-expect( AppleOAuth::scopes()->all() )->toContain( 'my.custom.scope' );
+expect( AppleOAuth::scopes()->all() )->toContain( 'fixture.scope' );
 ```
 
 Filter registrations persist across tests within the same process — call `Filter::remove()` in `tearDown()` or use a fresh filter registry per test if you need isolation.

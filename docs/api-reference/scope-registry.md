@@ -73,12 +73,14 @@ Equivalent to `[] === $this->missing( $grantedScopes )`.
 use ArtisanPackUI\Hooks\Facades\Filter;
 
 Filter::add( 'ap.apple-oauth.scopes', function ( array $scopes ): array {
-    $scopes[] = 'my.custom.scope';
+    // Reserved for when Apple issues additional scopes. Registering a scope
+    // Apple doesn't recognize will break the authorization request.
+    // $scopes[] = '<future-apple-scope>';
     return $scopes;
 } );
 ```
 
-Callback order doesn't matter — the union is de-duplicated at the end.
+Callback order doesn't matter — the union is de-duplicated at the end. See [Scopes](Scopes) for why Apple's fixed `name` + `email` surface makes this hook a forward-compatible seam rather than a place to add arbitrary scopes today.
 
 ## Container binding
 

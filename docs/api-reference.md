@@ -49,17 +49,17 @@ The service provider registers:
 |---|---|---|
 | `apple-oauth` | `ArtisanPackUI\AppleOAuth\AppleOAuth` | Singleton |
 | `ConfigurationRepository::class` | `ConfigDriver` / `DatabaseDriver` / `CmsSettingsDriver` (per `apple-oauth.driver`) | Bind (re-resolved per lookup) |
-| `ConfigDriver::class` | Singleton |
-| `DatabaseDriver::class` | Singleton |
-| `CmsSettingsDriver::class` | Singleton |
-| `ClientSecretGenerator::class` | Singleton |
-| `ScopeRegistry::class` | Singleton |
-| `OAuthManager::class` | Singleton |
-| `TokenManager::class` | Singleton |
+| `ConfigDriver::class` | `ConfigDriver` | Singleton |
+| `DatabaseDriver::class` | `DatabaseDriver` | Singleton |
+| `CmsSettingsDriver::class` | `CmsSettingsDriver` | Singleton |
+| `ClientSecretGenerator::class` | `ClientSecretGenerator` | Singleton |
+| `ScopeRegistry::class` | `ScopeRegistry` | Singleton |
+| `OAuthManager::class` | `OAuthManager` | Singleton |
+| `TokenManager::class` | `TokenManager` | Singleton |
 | `TokenProvider::class` | `OAuthTokenProvider` | Singleton |
-| `AppleOAuthManager::class` | Singleton |
+| `AppleOAuthManager::class` | `AppleOAuthManager` | Singleton |
 
-Rebind [`ConfigurationRepository`](API-Reference/Configuration-Repository) to swap in a custom credential driver. Rebind [`TokenProvider`](API-Reference/Token-Provider) to swap in a fake for tests. The `AppleOAuth` aggregator resolves both fresh on every access.
+Rebind [`ConfigurationRepository`](API-Reference/Configuration-Repository) to swap in a custom credential driver. Rebind [`TokenProvider`](API-Reference/Token-Provider) to swap in a fake for tests. The `AppleOAuth` aggregator is itself a singleton that stores its five manager instances at construction time — accessors return those stored references and do not re-resolve the container. Rebind `ConfigurationRepository` and `TokenProvider` **before the first resolve** of any singleton that consumes them (in a service provider's `register()`, or in test setup before touching the facade). Once a downstream manager has been constructed with the default binding, changing the binding has no effect on the already-cached instance.
 
 ## Namespace map
 

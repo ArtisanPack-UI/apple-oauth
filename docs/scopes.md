@@ -33,7 +33,9 @@ The registry is shaped generically so future Apple-issued scopes (or a bring-you
 
 ## Registering scopes from a service package
 
-Preferred: hook the `ap.apple-oauth.scopes` filter in your service package's `boot()` method:
+The filter hook exists as a forward-compatible seam for a future in which Apple issues additional scopes (or for a downstream broker that swaps the authorization endpoint entirely). **Do not use it to register a scope Apple does not recognize today — Apple rejects any authorization request that includes an unrecognized scope, so a fake registration will break sign-in.**
+
+The wiring, for that future day:
 
 ```php
 use ArtisanPackUI\Hooks\Facades\Filter;
@@ -43,7 +45,9 @@ class ExampleServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Filter::add( 'ap.apple-oauth.scopes', function ( array $scopes ): array {
-            $scopes[] = 'my.custom.scope';
+            // Reserved for when Apple issues new scopes. Adding an unknown
+            // scope here today will break the authorization request.
+            // $scopes[] = '<future-apple-scope>';
             return $scopes;
         } );
     }
@@ -54,12 +58,12 @@ The registry calls `Filter::apply( 'ap.apple-oauth.scopes', [] )` inside `all()`
 
 ## Registering scopes from application code
 
-For app-level scopes without a service provider:
+For imperative registration without a service provider (again, subject to the same "must be an Apple-recognized scope" constraint — the baseline `name` and `email` are the only two today):
 
 ```php
 use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
 
-AppleOAuth::scopes()->register( 'my.custom.scope' );
+// AppleOAuth::scopes()->register( '<future-apple-scope>' );
 ```
 
 Register from anywhere that runs before an authorization URL is built — usually inside a service provider's `boot()`.
@@ -75,16 +79,23 @@ $scopes = AppleOAuth::scopes()->all();
 
 ## Incremental-consent helpers
 
-The registry exposes `missing()` and `hasAllRequired()` for parity with the sibling Google package. Since Apple's scope surface is fixed to `name` + `email`, these are largely academic — every connected user has both — but they're still useful for tests or hypothetical future scopes:
+The registry exposes `missing()` and `hasAllRequired()` for parity with the sibling Google package. Since Apple's scope surface is fixed to `name` + `email` and Apple returns both whenever it releases the one-shot `user` payload, these are largely academic — but they're still useful for tests or hypothetical future scopes.
+
+`AppleConnection::grantedScopes()` reads the stored `scopes` JSON column. **The column is nullable and defaults to `null`**, and the OAuth flow doesn't currently populate it. For a fresh, just-connected row it returns `[]`, so `missing()` will list the entire baseline and `hasAllRequired()` will be `false` until you set `$connection->scopes` yourself:
 
 ```php
-$granted = $connection->grantedScopes();
+$connection = AppleOAuth::tokens()->store( $response );
+$granted    = $connection->grantedScopes();
 
-AppleOAuth::scopes()->missing( $granted );          // []
-AppleOAuth::scopes()->hasAllRequired( $granted );   // true
+AppleOAuth::scopes()->missing( $granted );          // ['name', 'email']
+AppleOAuth::scopes()->hasAllRequired( $granted );   // false
+
+// Persist the granted scopes explicitly if you want the helpers to reflect reality:
+$connection->scopes = AppleOAuth::scopes()->all();
+$connection->save();
+
+AppleOAuth::scopes()->hasAllRequired( $connection->grantedScopes() ); // true
 ```
-
-`AppleConnection::grantedScopes()` reads the stored `scopes` JSON column. The column is nullable and defaults to `null` — the OAuth flow doesn't currently populate it, so `grantedScopes()` returns `[]` for a fresh connection until you explicitly set it.
 
 ## Overriding scopes for a specific flow
 

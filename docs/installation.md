@@ -62,7 +62,7 @@ APPLE_OAUTH_CLIENT_ID=com.acme.app.web
 APPLE_OAUTH_TEAM_ID=ABCDE12345
 APPLE_OAUTH_KEY_ID=XXXXXXXXXX
 APPLE_OAUTH_PRIVATE_KEY=/Users/you/.config/artisanpack/AuthKey_XXXXXXXXXX.p8
-APPLE_OAUTH_REDIRECT_URI=https://app.acme.test/apple/callback
+APPLE_OAUTH_REDIRECT_URI=https://acme.example.com/apple/callback
 ```
 
 Or switch to a writable driver — see [Credential Drivers](Drivers).

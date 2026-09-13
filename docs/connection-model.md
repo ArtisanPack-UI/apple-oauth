@@ -139,7 +139,7 @@ Called by [`TokenManager::refresh()`](Tokens) automatically on `invalid_grant`. 
 
 ## `AppleUserProfile`
 
-`ArtisanPackUI\AppleOAuth\OAuth\AppleUserProfile` is the immutable value object [`OAuthManager::handleCallback()`](Oauth/Callback) returns as part of the [`TokenResponse`](API-Reference/OAuth-Manager#tokenresponse). Not persisted as a model — its fields are copied into the `AppleConnection` row by [`TokenManager::store()`](Tokens).
+`ArtisanPackUI\AppleOAuth\OAuth\AppleUserProfile` is the immutable value object [`OAuthManager::handleCallback()`](Oauth/Callback) returns as part of the [`TokenResponse`](API-Reference/OAuth-Manager#tokenresponse). Only `sub` and `email` are copied into the `AppleConnection` row by [`TokenManager::store()`](Tokens) — the `apple_connections` schema has no name columns. **`firstName` and `lastName` are your application's to persist**: Apple releases them only on the very first authorization for a given Services ID, and never re-emits them. Copy them into your own `users` table (or wherever you keep display names) inside your callback handler, before the initial redirect back.
 
 ```php
 final class AppleUserProfile

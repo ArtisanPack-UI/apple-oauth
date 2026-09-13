@@ -49,16 +49,19 @@ APPLE_OAUTH_CLIENT_ID=com.acme.app.web
 APPLE_OAUTH_TEAM_ID=ABCDE12345
 APPLE_OAUTH_KEY_ID=XXXXXXXXXX
 APPLE_OAUTH_PRIVATE_KEY=/Users/you/.config/artisanpack/AuthKey_XXXXXXXXXX.p8
-APPLE_OAUTH_REDIRECT_URI=https://app.acme.test/apple/callback
+APPLE_OAUTH_REDIRECT_URI=https://acme.example.com/apple/callback
 ```
 
 Full env reference: [Environment Variables](Installation/Environment-Variables). If you'd rather store credentials in the database or a CMS Settings module, see [Credential Drivers](Drivers).
 
 ## 5. Mount a connect route
 
-The package doesn't ship web routes — you own them. Redirect an authenticated user to Apple's consent URL:
+The package doesn't ship web routes — you own them. Both routes below **must run with the `web` middleware group** (or any middleware stack that includes `StartSession`) — `authorizationUrl()` stores `state`, `nonce`, and the app-side user id on the session, and `handleCallback()` reads them back. Declare them in `routes/web.php` (which applies the `web` group automatically), or add `->middleware( [ 'web', 'auth' ] )` explicitly if you're mounting them in `routes/api.php` or a group that omits sessions.
+
+Redirect an authenticated user to Apple's consent URL:
 
 ```php
+// routes/web.php
 use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
 use Illuminate\Http\Request;
 
@@ -87,12 +90,14 @@ Apple `form_post`s the response back to your `redirect_uri`. Exempt the path fro
 
 **Laravel 10** exempts paths on `App\Http\Middleware\VerifyCsrfToken` via its `$except` array.
 
-The route:
+The route (again, `routes/web.php` — `handleCallback()` needs to read the session `state` / `nonce` that `authorizationUrl()` stored):
 
 ```php
+// routes/web.php
 use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
 use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 Route::post( '/apple/callback', function ( Request $request ) {
     try {
@@ -102,7 +107,14 @@ Route::post( '/apple/callback', function ( Request $request ) {
             userPayload:   $request->input( 'user' ),
         );
     } catch ( OAuthException $e ) {
-        return redirect( '/' )->withErrors( [ 'apple' => $e->getMessage() ] );
+        // Log the specific reason for operators; do NOT surface $e->getMessage()
+        // to the end user — messages carry interpolated diagnostic values like
+        // an unexpected issuer, an internal error code, or a filesystem path.
+        Log::warning( 'Apple OAuth callback failed', [ 'exception' => $e ] );
+
+        return redirect( '/' )->withErrors( [
+            'apple' => __( 'We could not complete the Sign in with Apple flow. Please try again.' ),
+        ] );
     }
 
     $connection = AppleOAuth::tokens()->store( $response );

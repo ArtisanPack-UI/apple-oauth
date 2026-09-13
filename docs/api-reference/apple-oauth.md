@@ -63,7 +63,10 @@ $token      = AppleOAuth::tokens()->getValidAccessToken( $connection );
 The scope registry. See [`ScopeRegistry`](API-Reference/Scope-Registry).
 
 ```php
-AppleOAuth::scopes()->register( 'my.custom.scope' );
+// Apple only exposes `name` + `email` today. `register()` is a
+// forward-compatible seam — registering a scope Apple doesn't recognize
+// will break the authorization request. See the Scopes page for details.
+// AppleOAuth::scopes()->register( '<future-apple-scope>' );
 AppleOAuth::scopes()->all();
 ```
 

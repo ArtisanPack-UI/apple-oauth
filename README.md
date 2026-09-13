@@ -91,11 +91,11 @@ Sign in with Apple keys are always scoped to an App ID first, and the Services I
     - Tick **Sign in with Apple** to enable the capability.
     - Click **Configure** next to it.
     - Under **Primary App ID**, select the App ID from step 2.
-    - Under **Domains and Subdomains**, add the domain of the app that will host the redirect URI (e.g. `app.acme.test`, `acme.example.com`). Apple validates these; localhost and `.test` domains work in development but must resolve.
-    - Under **Return URLs**, add the absolute callback URL your app will handle, e.g. `https://app.acme.test/apple/callback`. This is your `APPLE_OAUTH_REDIRECT_URI`.
+    - Under **Domains and Subdomains**, add the public HTTPS domain that will host the redirect URI (e.g. `acme.example.com`). Apple verifies each domain by fetching `https://{domain}/.well-known/apple-developer-domain-association.txt`, so the hostname must be publicly reachable and TLS-terminated — `localhost` and unreachable `.test` hostnames will fail verification.
+    - Under **Return URLs**, add the absolute HTTPS callback URL your app will handle, e.g. `https://acme.example.com/apple/callback`. This is your `APPLE_OAUTH_REDIRECT_URI`.
     - Save.
 
-> Apple will not accept an `http://` return URL — the redirect must be HTTPS. In development, use a tool like Laravel Herd's per-site TLS or `valet secure`.
+> Apple will not accept an `http://` return URL — the redirect must be HTTPS. For local development, expose your site through an HTTPS tunnel (ngrok, Expose, cloudflared) and register the tunnel's hostname, or register a real dev subdomain that resolves publicly and TLS-terminates.
 
 ### 4. Create the Sign in with Apple key (`.p8`)
 
@@ -126,7 +126,7 @@ APPLE_OAUTH_CLIENT_ID=com.acme.app.web
 APPLE_OAUTH_TEAM_ID=ABCDE12345
 APPLE_OAUTH_KEY_ID=XXXXXXXXXX
 APPLE_OAUTH_PRIVATE_KEY=/Users/you/.config/artisanpack/AuthKey_XXXXXXXXXX.p8
-APPLE_OAUTH_REDIRECT_URI=https://app.acme.test/apple/callback
+APPLE_OAUTH_REDIRECT_URI=https://acme.example.com/apple/callback
 ```
 
 `APPLE_OAUTH_PRIVATE_KEY` accepts either an absolute filesystem path to a `.p8` file (recommended) or an inline PEM string. Prefer the path form: `php artisan config:cache` freezes `env()` reads into `bootstrap/cache/config.php`, so an inline PEM would be persisted in cleartext inside the cache file. A path stores only the string; the key bytes stay wherever you point at.
@@ -155,7 +155,7 @@ app( ConfigurationRepository::class )->save( [
     'team_id'      => 'ABCDE12345',
     'key_id'       => 'XXXXXXXXXX',
     'private_key'  => file_get_contents( '/path/to/AuthKey_XXXXXXXXXX.p8' ),
-    'redirect_uri' => 'https://app.acme.test/apple/callback',
+    'redirect_uri' => 'https://acme.example.com/apple/callback',
 ] );
 ```
 
@@ -169,7 +169,7 @@ Delegates get/set to the CMS framework's Settings module so credentials live alo
 APPLE_OAUTH_DRIVER=cms
 ```
 
-The private key and client secret are encrypted at rest — the service provider registers sanitize callbacks with the CMS framework so both this driver's writes and any save through the Settings UI persist the same encrypted ciphertext. If the CMS framework is not installed, the driver's setting keys simply are not registered and reads report as "not configured" — never a hard boot error.
+The private key and client secret are encrypted at rest — the service provider registers sanitize callbacks with the CMS framework so both this driver's writes and any save through the Settings UI persist the same encrypted ciphertext. The `cms` driver **requires** `artisanpack-ui/cms-framework`: setting `APPLE_OAUTH_DRIVER=cms` without the framework installed raises a clear `RuntimeException` at first resolve directing you to install the framework or fall back to `config` / `database`.
 
 ### Local-testing override: a pre-minted `client_secret`
 
@@ -222,6 +222,7 @@ The route itself:
 use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
 use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 Route::post( '/apple/callback', function ( Request $request ) {
     try {
@@ -231,7 +232,15 @@ Route::post( '/apple/callback', function ( Request $request ) {
             userPayload:   $request->input( 'user' ),
         );
     } catch ( OAuthException $e ) {
-        return redirect( '/' )->withErrors( [ 'apple' => $e->getMessage() ] );
+        // Log the specific reason for operators; do NOT surface $e->getMessage()
+        // to the end user — messages carry interpolated diagnostics (Apple's
+        // error codes, an unexpected id_token issuer, a filesystem path to the
+        // .p8 file). Render a fixed, translated message instead.
+        Log::warning( 'Apple OAuth callback failed', [ 'exception' => $e ] );
+
+        return redirect( '/' )->withErrors( [
+            'apple' => __( 'We could not complete the Sign in with Apple flow. Please try again.' ),
+        ] );
     }
 
     $connection = AppleOAuth::tokens()->store( $response );
@@ -245,25 +254,39 @@ Route::post( '/apple/callback', function ( Request $request ) {
 - `accessToken`, `refreshToken`, `idToken`, `tokenType`, `expiresAt`
 - `profile` — an `AppleUserProfile` with `sub`, `email`, and, only on the first authorization, `firstName` / `lastName`
 
-`AppleOAuth::tokens()->store( $response )` persists the `TokenResponse` as an encrypted `apple_connections` row and returns the `AppleConnection` model.
+`AppleOAuth::tokens()->store( $response )` persists the credential portion of the `TokenResponse` (the `sub`, `email`, tokens, expiry, and status) as an encrypted `apple_connections` row and returns the `AppleConnection` model. **The one-shot display name — `$response->profile->firstName` and `$response->profile->lastName` — is NOT stored by the package** (the `apple_connections` schema has no name columns). Copy it into your own `users` table (or wherever your app keeps display names) inside the callback:
 
-> Apple only releases the display name in the one-shot `user` form field, and only on the initial authorization for a given Services ID. Persist it on the first callback — subsequent authorizations never re-emit it.
+```php
+$connection = AppleOAuth::tokens()->store( $response );
+
+if ( $response->profile->hasName() ) {
+    $user = $request->user();
+    $user->first_name ??= $response->profile->firstName;
+    $user->last_name  ??= $response->profile->lastName;
+    $user->save();
+}
+```
+
+> Apple only releases the display name in the one-shot `user` form field, and only on the initial authorization for a given Services ID. Persist it on the first callback — subsequent authorizations never re-emit it, and there is no way to fetch it back from Apple later.
 
 ## Registering scopes from a service package
 
-Sign in with Apple exposes only two scopes today — `name` and `email` — and the package always requests both, because Apple gates the one-shot `user` payload on requesting them. Additional scopes reserved for future Apple-issued grants (or a bring-your-own baseline for a downstream broker) can be contributed by dependent packages via the `ap.apple-oauth.scopes` filter hook from [`artisanpack-ui/hooks`](https://github.com/ArtisanPack-UI/hooks):
+Sign in with Apple exposes only two scopes today — `name` and `email` — and the package always requests both, because Apple gates the one-shot `user` payload on requesting them. **Apple rejects any authorization request that includes a scope it does not recognize**, so today the filter hook is intentionally not something you should use to add extra scopes; it exists as a forward-compatible seam for the day Apple issues additional scopes (or for a downstream broker that swaps the authorization endpoint entirely).
+
+For that future case, dependent packages contribute scopes via the `ap.apple-oauth.scopes` filter hook from [`artisanpack-ui/hooks`](https://github.com/ArtisanPack-UI/hooks):
 
 ```php
 use ArtisanPackUI\Hooks\Facades\Filter;
 
-// In your service provider's boot() method:
+// Reserved for when Apple issues new scopes. Do NOT register a made-up scope
+// against production Apple today — Apple will reject the whole authorization.
 Filter::add( 'ap.apple-oauth.scopes', function ( array $scopes ): array {
-    $scopes[] = 'my.custom.scope';
+    // $scopes[] = '<future-apple-scope>';
     return $scopes;
 } );
 ```
 
-Applications that need to add a scope without a service provider can call `AppleOAuth::scopes()->register( $scope )` at runtime.
+Applications that need to add a scope imperatively can call `AppleOAuth::scopes()->register( $scope )` at runtime — subject to the same "must be an Apple-recognized scope" constraint.
 
 ## Making API calls
 

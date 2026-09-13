@@ -22,7 +22,7 @@ app( ConfigurationRepository::class )->save( [
     'team_id'      => 'ABCDE12345',
     'key_id'       => 'XXXXXXXXXX',
     'private_key'  => file_get_contents( '/path/to/AuthKey_XXXXXXXXXX.p8' ),
-    'redirect_uri' => 'https://app.acme.test/apple/callback',
+    'redirect_uri' => 'https://acme.example.com/apple/callback',
 ] );
 ```
 
