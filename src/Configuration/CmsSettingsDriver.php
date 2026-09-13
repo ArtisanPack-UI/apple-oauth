@@ -16,6 +16,7 @@ namespace ArtisanPackUI\AppleOAuth\Configuration;
 use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -52,6 +53,20 @@ class CmsSettingsDriver implements ConfigurationRepository
 
     public function __construct( protected Encrypter $encrypter )
     {
+        // Fail fast when `APPLE_OAUTH_DRIVER=cms` is set without the
+        // `artisanpack-ui/cms-framework` package installed. Every read and
+        // write on this driver goes through apGetSetting / apUpdateSetting;
+        // without them, later calls would raise a bare undefined-function
+        // Error with no context about the misconfiguration.
+        foreach ( [ 'apGetSetting', 'apUpdateSetting' ] as $helper ) {
+            if ( ! function_exists( $helper ) ) {
+                throw new RuntimeException(
+                    'artisanpack-ui/apple-oauth: the "cms" credential driver requires '
+                    . 'artisanpack-ui/cms-framework to be installed (missing helper: ' . $helper . '()). '
+                    . 'Install the framework or switch APPLE_OAUTH_DRIVER to "config" or "database".',
+                );
+            }
+        }
     }
 
     public function getClientId(): ?string
