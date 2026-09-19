@@ -16,10 +16,17 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth;
 
+use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
+use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
+use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
+use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
+
 /**
- * Main AppleOAuth class.
+ * Facade entry point for the Apple OAuth broker.
  *
- * Add your package methods and functionality here.
+ * Provides accessors for the OAuth authorization-code flow manager and,
+ * over the course of the v1.0 milestone, the token store, scope registry,
+ * and configuration repository.
  *
  * @package    ArtisanPack_UI
  * @subpackage AppleOAuth
@@ -28,5 +35,63 @@ namespace ArtisanPackUI\AppleOAuth;
  */
 class AppleOAuth
 {
-    // Add your package methods here
+    public function __construct(
+        protected OAuthManager $oauth,
+        protected ClientSecretGenerator $clientSecret,
+        protected TokenManager $tokens,
+        protected ScopeRegistry $scopes,
+        protected AppleOAuthManager $manager,
+    ) {
+    }
+
+    /**
+     * Access the OAuth authorization-code flow manager.
+     *
+     * @since 1.0.0
+     */
+    public function oauth(): OAuthManager
+    {
+        return $this->oauth;
+    }
+
+    /**
+     * Access the consumer-facing manager (authorized HTTP requests +
+     * the token-provider seam) downstream Apple API clients build on.
+     *
+     * @since 1.0.0
+     */
+    public function manager(): AppleOAuthManager
+    {
+        return $this->manager;
+    }
+
+    /**
+     * Access the ES256 client-secret JWT generator.
+     *
+     * @since 1.0.0
+     */
+    public function clientSecret(): ClientSecretGenerator
+    {
+        return $this->clientSecret;
+    }
+
+    /**
+     * Access the encrypted token store and refresh manager.
+     *
+     * @since 1.0.0
+     */
+    public function tokens(): TokenManager
+    {
+        return $this->tokens;
+    }
+
+    /**
+     * Access the scope registry.
+     *
+     * @since 1.0.0
+     */
+    public function scopes(): ScopeRegistry
+    {
+        return $this->scopes;
+    }
 }
