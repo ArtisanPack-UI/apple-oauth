@@ -39,7 +39,7 @@ Return a currently-valid `client_secret` JWT, minting and caching one if the cac
 Cache key:
 
 ```
-apple-oauth.client-secret.<sha256(team_id|key_id|client_id)>
+apple-oauth.client-secret.<sha256(team_id|key_id|client_id|sha256(private_key))>
 ```
 
 Values are cached for `client_secret_ttl - client_secret_leeway` seconds.

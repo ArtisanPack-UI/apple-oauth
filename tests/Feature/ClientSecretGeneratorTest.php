@@ -295,3 +295,30 @@ it( 'mints for runtime credentials without reading the configured driver', funct
 
     expect( $generator->generateFor( $credentials ) )->not->toBe( $jwt );
 } );
+
+it( 'keys the cache by the private key so a corrected key under the same key_id mints a fresh JWT', function (): void {
+    $oldKeys = makeEs256KeyPair();
+    $newKeys = makeEs256KeyPair();
+
+    $generator = app( ClientSecretGenerator::class );
+
+    $old = $generator->generateFor( new ArtisanPackUI\AppleOAuth\OAuth\AppleCredentials(
+        clientId: 'com.relay.app',
+        teamId: 'RELAYTEAM',
+        keyId: 'RELAYKEY',
+        privateKey: $oldKeys[ 'private' ],
+    ) );
+
+    $new = $generator->generateFor( new ArtisanPackUI\AppleOAuth\OAuth\AppleCredentials(
+        clientId: 'com.relay.app',
+        teamId: 'RELAYTEAM',
+        keyId: 'RELAYKEY',
+        privateKey: $newKeys[ 'private' ],
+    ) );
+
+    expect( $new )->not->toBe( $old );
+
+    [ $header, $claims, $signature ] = explode( '.', $new );
+
+    expect( openssl_verify( "{$header}.{$claims}", rawSignatureToDer( b64UrlDecode( $signature ) ), $newKeys[ 'public' ], OPENSSL_ALGO_SHA256 ) )->toBe( 1 );
+} );

@@ -15,6 +15,7 @@
 ### Changed
 - `OAuthManager::handleCallback()` and `TokenManager::refresh()` are now thin wrappers over the stateless primitives. Behavior in the default `direct` mode is unchanged.
 - `TokenResponse::$userId` and `TokenResponse::$profile` are now nullable, for stateless responses and for refreshes without an id_token. Session-flow callbacks always set both. `TokenManager::store()` throws when `userId` is null.
+- The `client_secret` cache key now includes a SHA-256 fingerprint of the private key, so a corrected or rotated key under the same Key ID never reuses a JWT signed with the old key. Existing cached JWTs are re-minted once after upgrading.
 - `TokenManager::store()` and `TokenManager::refresh()` now persist granted `scopes` when the response reports them (broker responses do; Apple's token endpoint does not).
 
 ### Documentation

@@ -126,7 +126,11 @@ class ClientSecretGenerator
     }
 
     /**
-     * Cache key for a credential set, scoped to (team_id, key_id, client_id).
+     * Cache key for a credential set, scoped to (team_id, key_id, client_id)
+     * plus a SHA-256 fingerprint of the private key, so a corrected or
+     * rotated key under the same key_id never reuses a JWT signed with the
+     * old one. For the path form the fingerprint covers the path string,
+     * not the file contents.
      *
      * @since 1.1.0
      */
@@ -134,7 +138,8 @@ class ClientSecretGenerator
     {
         return self::CACHE_KEY_PREFIX . hash(
             'sha256',
-            ( $credentials->teamId ?? '' ) . '|' . ( $credentials->keyId ?? '' ) . '|' . $credentials->clientId,
+            ( $credentials->teamId ?? '' ) . '|' . ( $credentials->keyId ?? '' ) . '|' . $credentials->clientId
+            . '|' . hash( 'sha256', (string) ( $credentials->privateKey ?? '' ) ),
         );
     }
 

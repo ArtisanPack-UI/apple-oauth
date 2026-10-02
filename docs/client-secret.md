@@ -43,12 +43,12 @@ The minted JWT carries the claims Apple documents:
 `ClientSecretGenerator` uses the framework `CacheRepository` (Laravel's default cache store). Cache key:
 
 ```
-apple-oauth.client-secret.<sha256(team_id|key_id|client_id)>
+apple-oauth.client-secret.<sha256(team_id|key_id|client_id|sha256(private_key))>
 ```
 
 Values are cached for `client_secret_ttl - client_secret_leeway` seconds. `client_secret_leeway` defaults to 30 seconds — so a JWT with a 3600-second TTL is cached for 3570 seconds, guaranteeing that a warmed value handed out on the last cached read still has 30 seconds of validity in front of it.
 
-Rotating credentials (a new `.p8` key) doesn't invalidate the cache automatically because the key changes but the fingerprint (`team_id|key_id|client_id`) can technically stay the same. Discard the cache manually after a rotation:
+Since 1.1.0 the fingerprint includes a SHA-256 of the `private_key` value, so swapping in different inline PEM mints a fresh JWT even under the same `key_id`. With the **path form**, the fingerprint covers the path string, not the file contents, so replacing the file in place keeps the old cache entry. Discard the cache manually after a rotation:
 
 ```php
 AppleOAuth::clientSecret()->forget();
@@ -107,7 +107,7 @@ When set, [`OAuthManager::handleCallback()`](Oauth/Callback) and [`TokenManager:
 3. `AppleOAuth::clientSecret()->forget()` to discard the cached JWT.
 4. Revoke the old key in Apple Developer once you've confirmed the new one mints valid JWTs.
 
-The generator's cache key includes `key_id`, so a rotated key with a fresh `key_id` naturally has a different cache key — but `forget()` is the safe belt-and-braces move if the old and new keys happen to share fingerprints.
+The generator's cache key includes `key_id` and a fingerprint of the `private_key` value, so a rotated key with a fresh `key_id` or different inline PEM naturally has a different cache key. `forget()` is still the safe move, and it's required when you replace a `.p8` file in place at the same path.
 
 ## Failure-mode summary
 
