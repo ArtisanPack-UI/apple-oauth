@@ -15,6 +15,7 @@ public function __construct(
     protected TokenManager $tokens,
     protected ScopeRegistry $scopes,
     protected AppleOAuthManager $manager,
+    protected ?HttpFactory $http = null,
 )
 ```
 
@@ -68,6 +69,29 @@ The scope registry. See [`ScopeRegistry`](API-Reference/Scope-Registry).
 // will break the authorization request. See the Scopes page for details.
 // AppleOAuth::scopes()->register( '<future-apple-scope>' );
 AppleOAuth::scopes()->all();
+```
+
+### `client( ?AppleCredentials $credentials = null ): AppleClient`
+
+*Since 1.1.0.* Returns a stateless Sign in with Apple client. With no arguments, it uses the configured credential driver. Pass [`AppleCredentials`](API-Reference/Apple-Client#applecredentials) to relay for another app, as an OAuth broker does. The client never touches the session or the database. See [`AppleClient`](API-Reference/Apple-Client) and [Stateless Client](Stateless-Client).
+
+```php
+$url    = AppleOAuth::client()->authorizationUrl( $state, [ 'name', 'email' ], $nonce );
+$tokens = AppleOAuth::client( $credentials )->refresh( $refreshToken );
+```
+
+### `broker( ?BrokerCredentials $credentials = null ): BrokerClient`
+
+*Since 1.1.0.* Returns a client for the OAuth broker. Pass [`BrokerCredentials`](API-Reference/Broker-Client#brokercredentials) explicitly, or omit them to build from `apple-oauth.broker.*` and the `ap.apple-oauth.broker.credentials` filter. Throws `OAuthException` when no credentials are passed and none are configured. See [`BrokerClient`](API-Reference/Broker-Client) and [Broker Mode](Broker-Mode).
+
+### `usesBroker(): bool`
+
+*Since 1.1.0.* Returns whether `apple-oauth.mode` is `broker`.
+
+```php
+if ( AppleOAuth::usesBroker() ) {
+    // The callback arrives as a GET from the broker, not a form_post from Apple.
+}
 ```
 
 ## The facade

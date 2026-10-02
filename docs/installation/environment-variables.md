@@ -12,6 +12,18 @@ Every env var `artisanpack-ui/apple-oauth` reads, what it maps to, and what happ
 |---|---|---|---|
 | `APPLE_OAUTH_DRIVER` | `config` | `apple-oauth.driver` | Which [credential driver](Drivers) resolves at runtime: `config`, `database`, or `cms`. |
 
+## OAuth mode and broker (since 1.1.0)
+
+| Env | Default | Config key | Meaning |
+|---|---|---|---|
+| `APPLE_OAUTH_MODE` | `direct` | `apple-oauth.mode` | `direct` or `broker`. See [Broker Mode](Broker-Mode). |
+| `APPLE_OAUTH_BROKER_URL` | — | `apple-oauth.broker.url` | Broker base URL. HTTPS required, except for `localhost`, `*.localhost`, `*.test`, and loopback IPs. |
+| `APPLE_OAUTH_BROKER_SITE_ID` | — | `apple-oauth.broker.site_id` | This site's ID at the broker. |
+| `APPLE_OAUTH_BROKER_SITE_SECRET` | — | `apple-oauth.broker.site_secret` | This site's broker secret (`{id}\|{plain}`), sent as a bearer token. Treat it like a password. |
+| `APPLE_OAUTH_BROKER_RETURN_URL` | — | `apple-oauth.broker.return_url` | Where the broker sends the browser back. Must be on the URL registered with the broker. |
+
+In broker mode, the credential values below aren't needed.
+
 ## Credential values
 
 Only the `config` driver reads these directly. The `database` and `cms` drivers persist the same values through `save()` — see their own pages under [Credential Drivers](Drivers).
@@ -58,6 +70,9 @@ Override them directly in `config/apple-oauth.php` if you need a test double (e.
 ```env
 # Driver
 APPLE_OAUTH_DRIVER=config
+
+# Mode (direct is the default; see Broker Mode for the broker variables)
+# APPLE_OAUTH_MODE=direct
 
 # Credentials
 APPLE_OAUTH_CLIENT_ID=com.acme.app.web

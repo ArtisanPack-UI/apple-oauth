@@ -285,6 +285,48 @@ $this->assertDatabaseHas( 'apple_connections', [
 ] );
 ```
 
+## Testing broker mode
+
+*Since 1.1.0.* Switch the mode in config and fake the broker host. Refreshes need no Apple credentials:
+
+```php
+use ArtisanPackUI\AppleOAuth\Exceptions\LicenseExpiredException;
+use ArtisanPackUI\AppleOAuth\Facades\AppleOAuth;
+use ArtisanPackUI\AppleOAuth\Models\AppleConnection;
+use Illuminate\Support\Facades\Http;
+
+beforeEach( function (): void {
+    config()->set( 'apple-oauth.mode', 'broker' );
+    config()->set( 'apple-oauth.broker', [
+        'url'         => 'https://broker.test',
+        'site_id'     => 'site-123',
+        'site_secret' => '1|plain-secret',
+        'return_url'  => 'https://site.test/apple/callback',
+    ] );
+} );
+
+it( 'keeps the connection when the license has expired', function (): void {
+    $connection = AppleConnection::factory()->create( [
+        'refresh_token' => 'a-refresh-token',
+        'status'        => 'connected',
+    ] );
+
+    Http::fake( [
+        'broker.test/api/v1/oauth/refresh' => Http::response( [
+            'error'     => 'license_expired',
+            'renew_url' => 'https://broker.test/renew/site-123',
+        ], 402 ),
+    ] );
+
+    expect( fn () => AppleOAuth::tokens()->refresh( $connection ) )
+        ->toThrow( LicenseExpiredException::class );
+
+    expect( $connection->fresh()->isConnected() )->toBeTrue();
+} );
+```
+
+A broker `/token` response must include an `id_token` whose payload has a `sub` claim, or the exchange throws. The signature isn't checked, so any three-segment JWT with a base64url JSON payload works in tests.
+
 ## Running the package's own tests
 
 From the package directory:

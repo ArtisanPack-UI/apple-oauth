@@ -54,6 +54,12 @@ Throws [`OAuthException`](API-Reference/Exceptions#oauthexception) when:
 - `openssl_sign()` fails.
 - The DER signature returned by OpenSSL is malformed.
 
+### `generateFor( AppleCredentials $credentials ): string`
+
+*Since 1.1.0.* Same as `generate()`, but for explicit [`AppleCredentials`](API-Reference/Apple-Client#applecredentials) instead of the bound credential driver. Lets a caller holding credentials at runtime, such as an OAuth broker relaying for an app it doesn't configure globally, mint secrets. Each (team, key, client) set gets its own cache entry. A static `clientSecret` on the credentials is **not** returned here. [`AppleClient::clientSecret()`](API-Reference/Apple-Client#clientsecret-string) checks it first.
+
+`generate()` is now `generateFor( AppleCredentials::fromRepository( $driver ) )`.
+
 ### `forget(): void`
 
 Discard any cached JWT so the next call mints a fresh one. Use after rotating the `.p8` key.
@@ -61,6 +67,10 @@ Discard any cached JWT so the next call mints a fresh one. Use after rotating th
 ```php
 AppleOAuth::clientSecret()->forget();
 ```
+
+### `forgetFor( AppleCredentials $credentials ): void`
+
+*Since 1.1.0.* Discards the cached JWT for explicit credentials.
 
 ## Configuration inputs
 

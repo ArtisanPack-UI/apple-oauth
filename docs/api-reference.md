@@ -11,6 +11,8 @@ Sub-pages by class:
 - [`AppleOAuth` — the facade / helper root](API-Reference/Apple-OAuth)
 - [`AppleOAuthManager` — authorized HTTP requests + `TokenProvider` seam](API-Reference/Apple-OAuth-Manager)
 - [`OAuthManager` — authorization-code flow](API-Reference/OAuth-Manager)
+- [`AppleClient` — stateless Apple primitives + `AppleCredentials`](API-Reference/Apple-Client)
+- [`BrokerClient` — OAuth broker client + `BrokerCredentials`](API-Reference/Broker-Client)
 - [`TokenManager` — persistence and refresh](API-Reference/Token-Manager)
 - [`ClientSecretGenerator` — ES256 client-secret JWT signer](API-Reference/Client-Secret-Generator)
 - [`ScopeRegistry`](API-Reference/Scope-Registry)
@@ -29,9 +31,12 @@ AppleOAuth::manager();       // AppleOAuthManager
 AppleOAuth::clientSecret();  // ClientSecretGenerator
 AppleOAuth::tokens();        // TokenManager
 AppleOAuth::scopes();        // ScopeRegistry
+AppleOAuth::client();        // AppleClient (stateless, since 1.1.0)
+AppleOAuth::broker();        // BrokerClient (since 1.1.0)
+AppleOAuth::usesBroker();    // bool (since 1.1.0)
 ```
 
-Every accessor returns a singleton — the same instance is shared across the request lifecycle. The `AppleOAuth` class itself just aggregates the managers so callers have a single entry point.
+`oauth()`, `manager()`, `clientSecret()`, `tokens()`, and `scopes()` return singletons that are shared across the request lifecycle. `client()` and `broker()` build a new client on every call, from the credentials you pass or from config. The `AppleOAuth` class itself just aggregates the managers so callers have a single entry point.
 
 ## The helper
 
@@ -78,8 +83,13 @@ ArtisanPackUI\AppleOAuth\
 ├── Contracts\
 │   ├── ConfigurationRepository.php
 │   └── TokenProvider.php
+├── Broker\
+│   ├── BrokerClient.php                — OAuth broker client (since 1.1.0)
+│   └── BrokerCredentials.php
 ├── OAuth\
 │   ├── OAuthManager.php
+│   ├── AppleClient.php                 — stateless Apple primitives (since 1.1.0)
+│   ├── AppleCredentials.php
 │   ├── ClientSecretGenerator.php
 │   ├── TokenResponse.php
 │   └── AppleUserProfile.php
@@ -91,13 +101,16 @@ ArtisanPackUI\AppleOAuth\
 ├── Models\
 │   └── AppleConnection.php
 └── Exceptions\
+    ├── Concerns\
+    │   └── CarriesOAuthError.php       — getError() / getRenewUrl()
     ├── OAuthException.php
-    └── TokenRefreshException.php
+    ├── TokenRefreshException.php
+    └── LicenseExpiredException.php     — extends TokenRefreshException
 ```
 
 ## No public routes
 
-The package does not ship any web routes. You own the connect and callback routes for your app. See [OAuth Flow](Oauth) for wiring.
+The package does not ship any web routes. You own the connect and callback routes for your app. See [OAuth Flow](Oauth) for wiring, and [Broker Mode](Broker-Mode) for the broker's `GET` callback.
 
 ## Publish tags
 
@@ -111,6 +124,7 @@ The package does not ship any web routes. You own the connect and callback route
 | Hook | Contract | Purpose |
 |---|---|---|
 | `ap.apple-oauth.scopes` | Filter — receives and returns `array<int, string>` | Contribute scopes to the [registry](Scopes). Fires inside `ScopeRegistry::all()`. |
+| `ap.apple-oauth.broker.credentials` | Filter — receives and returns `array{url: ?string, site_id: ?string, site_secret: ?string}` | Supply [broker](Broker-Mode) credentials at runtime. Fires inside `BrokerCredentials::fromConfig()`. Since 1.1.0. |
 
 ---
 Continue to [Testing](Testing) →

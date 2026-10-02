@@ -42,6 +42,12 @@ class BrokerClient
      */
     public const LINK_TTL_SECONDS = 300;
 
+    /**
+     * @since 1.1.0
+     *
+     * @param  BrokerCredentials  $credentials  Broker URL, site ID and site secret.
+     * @param  HttpFactory        $http         HTTP client factory.
+     */
     public function __construct(
         protected BrokerCredentials $credentials,
         protected HttpFactory $http,

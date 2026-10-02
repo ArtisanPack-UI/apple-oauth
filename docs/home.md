@@ -14,6 +14,8 @@ Use the navigation below to explore topics. Links use the GitLab wiki page style
 - [Installation](Installation)
 - [Credential Drivers](Drivers)
 - [OAuth Flow](Oauth)
+- [Broker Mode](Broker-Mode)
+- [Stateless Client](Stateless-Client)
 - [Scopes](Scopes)
 - [Tokens](Tokens)
 - [Client-Secret JWT](Client-Secret)
@@ -33,6 +35,8 @@ If you're new here, start with [Getting Started](Getting-Started).
 - **ES256 `client_secret` JWT signing** — Apple requires the OAuth `client_secret` to be a short-lived JWT signed with the developer's P-256 `.p8` key. The package mints, caches, and rotates one on demand. See [Client-Secret JWT](Client-Secret).
 - **Encrypted token storage** on a per-user `apple_connections` model, with transparent refresh via the [token manager](Tokens) and automatic disconnection on `invalid_grant`.
 - A **scope registry** that lets any installed service package contribute scopes through the `ap.apple-oauth.scopes` filter hook.
+- **Broker mode** (since 1.1.0). Connect, callback, and refresh can run through an ArtisanPack UI OAuth broker, so a site holds no Apple client secret or `.p8` key. See [Broker Mode](Broker-Mode).
+- **Stateless relay primitives** (since 1.1.0). The [`AppleClient`](Stateless-Client) runs the Apple leg from runtime credentials without touching the session or the database, which is what an OAuth broker is built on.
 - **Credential storage drivers** ([config, database, or CMS](Drivers)) so credentials can live wherever a project already stores its secrets.
 
 ## What this package does not do
