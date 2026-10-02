@@ -6,7 +6,11 @@ title: OAuth Flow
 
 The package implements the **OAuth 2.0 Authorization Code flow** end-to-end for Sign in with Apple. Users visit a "Connect Apple" link in your app, get redirected to Apple's consent screen, and Apple `form_post`s the response back to a callback route you own; on success your app persists an encrypted [`AppleConnection`](Connection-Model) row and continues.
 
-This page walks through each leg. See the sub-pages for deeper coverage.
+This page walks through each leg in the default `direct` mode. See the sub-pages for deeper coverage.
+
+> **Broker mode.** With `APPLE_OAUTH_MODE=broker` (since 1.1.0), the same `authorizationUrl()` / `handleCallback()` calls go through an OAuth broker instead, and your site holds no Apple key. The callback then arrives as a `GET` from the broker. See [Broker Mode](Broker-Mode).
+>
+> **Stateless use.** Every Apple call goes through the stateless [`AppleClient`](Stateless-Client), which you can use directly when you manage state and persistence yourself, for example when building a broker.
 
 ## No built-in routes
 
@@ -109,18 +113,23 @@ This sets `status = 'disconnected'`, records a reason, and leaves the tokens on 
 
 ## Exceptions
 
-The OAuth manager throws two exception types:
+The OAuth manager throws these exception types:
 
 | Exception | Thrown by | When |
 |---|---|---|
 | [`OAuthException`](API-Reference/Exceptions#oauthexception) | `authorizationUrl()`, `handleCallback()` | Missing credentials, HTTPS violation on token endpoint, state mismatch, missing session context, code-exchange failure, missing required token fields, id_token claim mismatch, malformed id_token. |
 | [`TokenRefreshException`](API-Reference/Exceptions#tokenrefreshexception) | [`TokenManager`](Tokens) | Disconnected connection, missing refresh token, HTTPS violation on refresh, refresh failure, missing `access_token` in refresh response. |
+| [`LicenseExpiredException`](API-Reference/Exceptions#licenseexpiredexception) | [`TokenManager`](Tokens), broker mode | The broker refused a refresh because the site license lapsed. The connection stays connected. |
+
+Since 1.1.0 both base exceptions expose the OAuth error code through `getError()`, for example `invalid_grant`.
 
 ## Deeper topics
 
 - [Connect](Oauth/Connect) — building the authorize URL, session state/nonce, `response_mode=form_post`.
 - [Callback](Oauth/Callback) — code exchange, id_token claim validation, one-shot `user` payload, refresh-token preservation.
 - [Disconnect](Oauth/Disconnect) — `markDisconnected()`, reconnect flow, local vs. remote revocation.
+- [Broker Mode](Broker-Mode) — connect, callback, and refresh through an OAuth broker.
+- [Stateless Client](Stateless-Client) — the session-free `AppleClient` primitives.
 
 ---
-Continue to [Scopes](Scopes) →
+Continue to [Broker Mode](Broker-Mode) →

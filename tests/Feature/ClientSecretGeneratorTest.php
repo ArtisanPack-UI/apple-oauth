@@ -265,3 +265,60 @@ it( 'falls back to the default TTL when a nonsense value is configured', functio
 
     expect( $claims[ 'exp' ] - $claims[ 'iat' ] )->toBe( 3600 );
 } );
+
+it( 'mints for runtime credentials without reading the configured driver', function (): void {
+    $runtimeKeys = makeEs256KeyPair();
+
+    $credentials = new ArtisanPackUI\AppleOAuth\OAuth\AppleCredentials(
+        clientId: 'com.relay.app',
+        teamId: 'RELAYTEAM',
+        keyId: 'RELAYKEY',
+        privateKey: $runtimeKeys[ 'private' ],
+    );
+
+    $generator = app( ClientSecretGenerator::class );
+    $jwt       = $generator->generateFor( $credentials );
+
+    [ $header, $claims, $signature ] = explode( '.', $jwt );
+
+    expect( json_decode( b64UrlDecode( $header ), true )[ 'kid' ] )->toBe( 'RELAYKEY' );
+    expect( json_decode( b64UrlDecode( $claims ), true ) )
+        ->toMatchArray( [ 'iss' => 'RELAYTEAM', 'sub' => 'com.relay.app' ] );
+    expect( openssl_verify( "{$header}.{$claims}", rawSignatureToDer( b64UrlDecode( $signature ) ), $runtimeKeys[ 'public' ], OPENSSL_ALGO_SHA256 ) )->toBe( 1 );
+
+    // Cached per credential set, independently of the configured app.
+    expect( $generator->generateFor( $credentials ) )->toBe( $jwt );
+    expect( $generator->generate() )->not->toBe( $jwt );
+
+    // ECDSA signatures are randomized, so a re-mint always differs.
+    $generator->forgetFor( $credentials );
+
+    expect( $generator->generateFor( $credentials ) )->not->toBe( $jwt );
+} );
+
+it( 'keys the cache by the private key so a corrected key under the same key_id mints a fresh JWT', function (): void {
+    $oldKeys = makeEs256KeyPair();
+    $newKeys = makeEs256KeyPair();
+
+    $generator = app( ClientSecretGenerator::class );
+
+    $old = $generator->generateFor( new ArtisanPackUI\AppleOAuth\OAuth\AppleCredentials(
+        clientId: 'com.relay.app',
+        teamId: 'RELAYTEAM',
+        keyId: 'RELAYKEY',
+        privateKey: $oldKeys[ 'private' ],
+    ) );
+
+    $new = $generator->generateFor( new ArtisanPackUI\AppleOAuth\OAuth\AppleCredentials(
+        clientId: 'com.relay.app',
+        teamId: 'RELAYTEAM',
+        keyId: 'RELAYKEY',
+        privateKey: $newKeys[ 'private' ],
+    ) );
+
+    expect( $new )->not->toBe( $old );
+
+    [ $header, $claims, $signature ] = explode( '.', $new );
+
+    expect( openssl_verify( "{$header}.{$claims}", rawSignatureToDer( b64UrlDecode( $signature ) ), $newKeys[ 'public' ], OPENSSL_ALGO_SHA256 ) )->toBe( 1 );
+} );

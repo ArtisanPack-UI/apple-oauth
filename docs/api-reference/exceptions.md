@@ -4,7 +4,34 @@ title: Exceptions
 
 # Exceptions
 
-`artisanpack-ui/apple-oauth` throws two exception types, both extending `RuntimeException`. Catch by type — code should switch on the class, not on the message string.
+`artisanpack-ui/apple-oauth` throws three exception types. `OAuthException` and `TokenRefreshException` both extend `RuntimeException`, and `LicenseExpiredException` extends `TokenRefreshException`. Catch by type, and switch on the class or on `getError()`, never on the message string.
+
+## Error codes
+
+*Since 1.1.0.* Both base exceptions use the `CarriesOAuthError` trait, which gives them a machine-readable OAuth error code next to the translated message:
+
+```php
+public function __construct(
+    string $message = '',
+    ?string $error = null,      // e.g. 'invalid_grant', 'license_expired'
+    ?string $renewUrl = null,   // only for license_expired
+    ?Throwable $previous = null,
+);
+
+public function getError(): ?string;
+public function getRenewUrl(): ?string;
+```
+
+| `getError()` | Source |
+|---|---|
+| Apple's or the broker's `error` field | Any rejected exchange or refresh (`invalid_grant`, `invalid_client`, …). |
+| `exchange_failed` | Failed code exchange with an unparseable body, or a 2xx missing `access_token` / `id_token` / `sub`. |
+| `refresh_failed` | Failed refresh with an unparseable body, or a 2xx missing `access_token`. |
+| `insecure_endpoint` | `apple-oauth.endpoints.token` isn't HTTPS. |
+| `invalid_client` | Refresh attempted with an empty `client_id`. |
+| `broker_not_configured` | Refresh attempted in broker mode with no broker credentials. |
+| `license_expired` | The broker refused a refresh with HTTP 402. Thrown as `LicenseExpiredException`. |
+| `null` | Validation failures that have no OAuth code, such as state mismatch or a claim mismatch. |
 
 > **Do not pass `$e->getMessage()` straight to the browser.** The messages below embed interpolated diagnostic values (`<error>` from Apple's response body, `<iss>` from a mismatched id_token issuer, `<path>` for a missing `.p8` file on the deploy host) that reveal internal state. Log the raw exception for operators (`Log::warning( ..., [ 'exception' => $e ] )`) and render a fixed, translated user-facing message from the exception **class**, not from `$e->getMessage()`. The tables here are the operator-facing reference; treat every message as internal.
 
@@ -12,7 +39,7 @@ title: Exceptions
 
 `ArtisanPackUI\AppleOAuth\Exceptions\OAuthException`
 
-Thrown by [`OAuthManager`](API-Reference/OAuth-Manager) and [`ClientSecretGenerator`](API-Reference/Client-Secret-Generator) when the OAuth negotiation itself fails.
+Thrown by [`OAuthManager`](API-Reference/OAuth-Manager), [`AppleClient`](API-Reference/Apple-Client), [`BrokerClient`](API-Reference/Broker-Client), and [`ClientSecretGenerator`](API-Reference/Client-Secret-Generator) when the OAuth negotiation itself fails.
 
 ### Thrown by `OAuthManager::authorizationUrl()`
 
@@ -38,7 +65,18 @@ Thrown by [`OAuthManager`](API-Reference/OAuth-Manager) and [`ClientSecretGenera
 | `Apple id_token nonce mismatch.` | Session `nonce` doesn't match the id_token `nonce`. |
 | `Apple id_token is missing sub claim.` | `sub` claim empty or absent. |
 
-### Thrown by `ClientSecretGenerator::generate()`
+### Broker mode and stateless use (since 1.1.0)
+
+| Message | Cause |
+|---|---|
+| `Apple OAuth broker credentials are not configured.` | Broker mode with an empty broker URL, site ID, or site secret. |
+| `Set apple-oauth.broker.return_url to use the Apple OAuth broker.` | Broker mode with no `broker.return_url`. |
+| `The Apple OAuth broker URL must use HTTPS; plain HTTP is only allowed for local development hosts.` | `BrokerCredentials` built with an insecure URL. |
+| `Apple code exchange failed: <error>` | The broker's `/token` rejected the one-time code. `getRenewUrl()` is set when the broker sent one. |
+| `The Apple OAuth broker response is missing an id_token with a sub claim.` | The broker's `/token` response can't be tied to an Apple account. |
+| `Cannot store an Apple token response without a user; call withUserId() first.` | `TokenManager::store()` was given a stateless `TokenResponse`. |
+
+### Thrown by `ClientSecretGenerator::generate()` / `generateFor()`
 
 | Message | Cause |
 |---|---|
@@ -54,7 +92,7 @@ Thrown by [`OAuthManager`](API-Reference/OAuth-Manager) and [`ClientSecretGenera
 
 `ArtisanPackUI\AppleOAuth\Exceptions\TokenRefreshException`
 
-Thrown by [`TokenManager`](API-Reference/Token-Manager) and every [`TokenProvider`](API-Reference/Token-Provider) implementation when a valid access token can't be produced.
+Thrown by [`TokenManager`](API-Reference/Token-Manager), `AppleClient::refresh()`, `BrokerClient::refresh()`, and every [`TokenProvider`](API-Reference/Token-Provider) implementation when a valid access token can't be produced.
 
 | Message | Cause | Side effect |
 |---|---|---|
@@ -65,17 +103,29 @@ Thrown by [`TokenManager`](API-Reference/Token-Manager) and every [`TokenProvide
 | `Apple token refresh failed: invalid_grant` | Refresh token revoked / expired on Apple's side. | Connection `markDisconnected( 'Refresh token revoked or expired.' )`. |
 | `Apple token refresh failed: <other>` | Any other Apple error. | **None** — caller can retry after fixing config. |
 | `Apple token refresh response is missing access_token.` | Apple returned 2xx with no `access_token`. | None. |
+| `Apple OAuth broker credentials are not configured.` | Broker mode with no broker credentials (`broker_not_configured`). | None. |
+
+## `LicenseExpiredException`
+
+*Since 1.1.0.* `ArtisanPackUI\AppleOAuth\Exceptions\LicenseExpiredException` extends `TokenRefreshException`.
+
+Thrown in [broker mode](Broker-Mode) when the broker refuses a refresh because the site's plugin license has lapsed past its grace period (HTTP `402` / `error=license_expired`). The message is `The Apple connection cannot be refreshed because the site license has expired.`
+
+**The connection stays connected.** Unlike a revoked grant, the Apple authorization is still valid, so refreshes resume once the license is renewed at `getRenewUrl()`, and the user doesn't need to reconnect.
 
 ## Handling
 
 Catch by type. Distinguish user-facing "please reconnect" errors from transient failures:
 
 ```php
-use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
+use ArtisanPackUI\AppleOAuth\Exceptions\LicenseExpiredException;
 use ArtisanPackUI\AppleOAuth\Exceptions\TokenRefreshException;
 
 try {
     $token = $apple->accessTokenFor( $connection );
+} catch ( LicenseExpiredException $e ) {
+    // Broker mode only. The connection is still connected.
+    return response()->view( 'settings.renew-license', [ 'renewUrl' => $e->getRenewUrl() ], 402 );
 } catch ( TokenRefreshException $e ) {
     // The manager may have flipped the connection to disconnected.
     $connection->refresh();
@@ -88,4 +138,4 @@ try {
 }
 ```
 
-Both types extend `\RuntimeException`, so a generic `catch ( RuntimeException $e )` catches them if you don't want to distinguish. Prefer typed catches — the class distinction encodes which layer of the flow broke.
+All three types extend `\RuntimeException`, so a generic `catch ( RuntimeException $e )` catches them if you don't want to distinguish. Prefer typed catches — the class distinction encodes which layer of the flow broke.

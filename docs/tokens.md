@@ -20,11 +20,12 @@ $connection = AppleOAuth::tokens()->store( $response );
 
 1. `AppleConnection::firstOrNew( [ 'user_id' => $response->userId ] )` — creates a fresh row for first authorization, or loads the existing row for a reconnect.
 2. Assigns `apple_user_id` (from the id_token's validated `sub`), `access_token`, `id_token`, `token_type`, `expires_at`, `status = 'connected'`, and clears `disconnect_reason`.
-3. Preserves the existing `email` when the incoming `profile->email` is null (Apple omits it on re-authorizations after the first).
-4. Preserves the existing `refresh_token` when the incoming `refreshToken` is null or empty (Apple only emits refresh tokens on the initial authorization for a given grant).
-5. Saves.
+3. Keeps the existing `apple_user_id` when `profile` is null, and writes `scopes` when the response reports any. *Since 1.1.0.*
+4. Preserves the existing `email` when the incoming `profile->email` is null (Apple omits it on re-authorizations after the first).
+5. Preserves the existing `refresh_token` when the incoming `refreshToken` is null or empty (Apple only emits refresh tokens on the initial authorization for a given grant).
+6. Saves.
 
-Returns the persisted `AppleConnection`. Full column reference: [Connection Model](Connection-Model).
+Returns the persisted `AppleConnection`. `store()` throws `OAuthException` when `$response->userId` is null. A response from the [stateless client](Stateless-Client) needs `->withUserId( $id )` first. Full column reference: [Connection Model](Connection-Model).
 
 ## Getting a valid access token
 
@@ -86,7 +87,7 @@ Bypasses the expiry check and always hits `/auth/token`. Useful in tests or when
 
 ## What happens during refresh
 
-`TokenManager::refresh()`:
+`TokenManager::refresh()` delegates the HTTP call to the stateless [`AppleClient::refresh()`](API-Reference/Apple-Client#refresh) (since 1.1.0). In [broker mode](Broker-Mode#refresh) it uses [`BrokerClient::refresh()`](API-Reference/Broker-Client) instead, which needs no Apple credentials. The direct-mode steps are:
 
 1. If no refresh token is on file → `$connection->markDisconnected( 'Missing refresh token.' )` and throws `TokenRefreshException("No refresh token stored for this connection.")`.
 2. Reads `client_id` from the [credential driver](Drivers). Missing → `TokenRefreshException("Apple OAuth credentials are not configured.")`.
@@ -106,7 +107,7 @@ Bypasses the expiry check and always hits `/auth/token`. Useful in tests or when
    - Missing `access_token` → `TokenRefreshException("Apple token refresh response is missing access_token.")`.
    - Sets `access_token`, `token_type` (if present), `expires_at` (`Carbon::now()->addSeconds($expiresIn)`, defaulting to 3600 if Apple omits `expires_in` — never leaves it in the past).
    - Persists a rotated `refresh_token` if one is returned. Apple typically doesn't rotate, but the OAuth2 spec permits it; the persistence here defends against a silent break if Apple ever starts.
-8. Saves and returns the fresh access token.
+8. Writes `scopes` when the response reports any, then saves and returns the fresh access token.
 
 Every path either returns a fresh access token or throws — there's no partial-success state.
 
@@ -134,6 +135,10 @@ The refresh token has been revoked or expired. Common causes:
 - User's Apple ID password changed in some configurations.
 
 The manager marks the connection disconnected with reason `"Refresh token revoked or expired."`.
+
+### `LicenseExpiredException` (broker mode)
+
+The broker refused the refresh because the site's license has lapsed (HTTP 402). The connection is **not** disconnected. Show the user [`$e->getRenewUrl()`](API-Reference/Exceptions#licenseexpiredexception), and refreshes resume once the license is renewed. Catch it before `TokenRefreshException`, which it extends.
 
 ### `Apple token refresh failed: <other error>`
 

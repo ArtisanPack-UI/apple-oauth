@@ -1,8 +1,9 @@
 {
   "name": "artisanpack-ui/apple-oauth",
-  "description": "Initial scaffold for the shared Apple (Sign in with Apple) OAuth2 broker for ArtisanPack UI's Apple service integrations. No feature code yet — authentication, token storage/refresh, and scope management arrive in later releases.",
+  "description": "Shared Sign in with Apple OAuth2 authentication, client-secret signing, token storage/refresh, and scope management that powers ArtisanPack UI's Apple service integrations, with an optional OAuth broker mode.",
   "type": "library",
   "license": "MIT",
+  "version": "1.1.0",
   "keywords": [
     "laravel",
     "apple",

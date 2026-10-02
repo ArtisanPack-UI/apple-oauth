@@ -15,6 +15,11 @@ php artisan vendor:publish --tag=apple-oauth-config
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `driver` | `string` | `env('APPLE_OAUTH_DRIVER', 'config')` | Which [credential driver](Drivers) resolves: `config`, `database`, or `cms`. |
+| `mode` | `string` | `env('APPLE_OAUTH_MODE', 'direct')` | `direct` talks to Apple with this app's own Services ID and `.p8` key. `broker` runs connect, callback, and refresh through an OAuth broker. See [Broker Mode](Broker-Mode). *Since 1.1.0.* |
+| `broker.url` | `?string` | `env('APPLE_OAUTH_BROKER_URL')` | Broker base URL. Must be HTTPS, except for local development hosts. *Since 1.1.0.* |
+| `broker.site_id` | `?string` | `env('APPLE_OAUTH_BROKER_SITE_ID')` | This site's ID at the broker. *Since 1.1.0.* |
+| `broker.site_secret` | `?string` | `env('APPLE_OAUTH_BROKER_SITE_SECRET')` | This site's broker secret (`{id}\|{plain}`). *Since 1.1.0.* |
+| `broker.return_url` | `?string` | `env('APPLE_OAUTH_BROKER_RETURN_URL')` | Where the broker sends the browser back with its one-time `code`. Its route should call `AppleOAuth::oauth()->handleCallback()`. *Since 1.1.0.* |
 | `client_id` | `?string` | `env('APPLE_OAUTH_CLIENT_ID')` | The Services ID from Apple Developer. |
 | `team_id` | `?string` | `env('APPLE_OAUTH_TEAM_ID')` | The 10-character Apple Developer team ID. |
 | `key_id` | `?string` | `env('APPLE_OAUTH_KEY_ID')` | The 10-character Key ID of the `.p8` used to sign the client secret. |
@@ -29,6 +34,8 @@ php artisan vendor:publish --tag=apple-oauth-config
 | `user_model` | `class-string` | `env('APPLE_OAUTH_USER_MODEL', 'App\Models\User')` | The user model an `apple_connections` row belongs to. |
 
 ## Two credential modes
+
+These apply to `direct` mode. In `broker` mode only the `broker.*` keys are read, and `url`, `site_id`, and `site_secret` can also come from the `ap.apple-oauth.broker.credentials` filter.
 
 The `client_id` + `redirect_uri` pair is always required. Beyond that there are two modes:
 

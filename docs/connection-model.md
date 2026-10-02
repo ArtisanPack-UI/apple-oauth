@@ -149,16 +149,20 @@ final class AppleUserProfile
         public readonly ?string $email = null,
         public readonly ?string $firstName = null,
         public readonly ?string $lastName = null,
+        public readonly ?string $displayName = null,
     ) {}
 
     public function hasName(): bool;
+    public function fullName(): ?string;
 }
 ```
 
 - `sub` — Apple's stable identifier for this user under this Services ID. Validated non-empty by `OAuthManager::validateIdTokenClaims()`.
 - `email` — id_token `email` claim, if present.
 - `firstName` / `lastName` — extracted from the one-shot `user` form field, only on the first authorization.
-- `hasName()` — `true` when either `firstName` or `lastName` is set. Effectively "was this the first authorization?" — false on every subsequent callback.
+- `displayName` — the full name when it arrived as one string rather than split into given and family names. In [broker mode](Broker-Mode) it holds the broker's `account_name`. *Since 1.1.0.*
+- `fullName()` — returns `displayName` if set, otherwise `firstName` and `lastName` joined with a space, or `null` when no name was released. *Since 1.1.0.*
+- `hasName()` — `true` when `fullName()` is non-null. Effectively "was this the first authorization?" — false on every subsequent callback.
 
 ## Model factories
 

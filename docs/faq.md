@@ -31,6 +31,14 @@ The anti-forgery guarantee is the `state` parameter [`OAuthManager::handleCallba
 
 Yes. The CMS framework is only required if you set `APPLE_OAUTH_DRIVER=cms`. The default [`config` driver](Drivers/Config) and the [`database` driver](Drivers/Database) work without it. If you pick `cms` without the framework installed, the driver throws a `RuntimeException` at construction time with a message pointing at the fix — see [CMS Driver → Fail-fast](Drivers/CMS#fail-fast-when-the-framework-isnt-installed).
 
+### Can I avoid setting up an Apple Developer account for every site?
+
+Yes. Since 1.1.0 you can use [broker mode](Broker-Mode). Set `APPLE_OAUTH_MODE=broker` and point the site at an ArtisanPack UI OAuth broker. The broker holds the Services ID and `.p8` key, and each site holds only its broker URL, site ID, and site secret.
+
+### Why does a broker-mode refresh throw `LicenseExpiredException`?
+
+The broker refused the refresh because the site's license lapsed past its grace period. The Apple connection is still valid and stays connected. Send the user to `$e->getRenewUrl()`, and refreshes resume once the license is renewed. See [Exceptions → LicenseExpiredException](API-Reference/Exceptions#licenseexpiredexception).
+
 ## Credentials
 
 ### Where should I put my `.p8` private key?

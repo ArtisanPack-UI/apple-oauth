@@ -13,6 +13,7 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth\Exceptions;
 
+use ArtisanPackUI\AppleOAuth\Exceptions\Concerns\CarriesOAuthError;
 use RuntimeException;
 
 /**
@@ -22,4 +23,5 @@ use RuntimeException;
  */
 class OAuthException extends RuntimeException
 {
+    use CarriesOAuthError;
 }

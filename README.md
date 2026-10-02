@@ -8,6 +8,8 @@ Shared Sign in with Apple OAuth2 broker for ArtisanPack UI's Apple service integ
 - [Credential storage: config vs. database vs. CMS](#credential-storage)
 - [Connecting a user](#connecting-a-user)
 - [Handling the callback](#handling-the-callback)
+- [Broker mode](#broker-mode)
+- [Stateless client (for brokers)](#stateless-client-for-brokers)
 - [Registering scopes from a service package](#registering-scopes-from-a-service-package)
 - [Making API calls](#making-api-calls)
 - [Client-secret JWT](#client-secret-jwt)
@@ -22,6 +24,8 @@ Shared Sign in with Apple OAuth2 broker for ArtisanPack UI's Apple service integ
 - **ES256 `client_secret` JWT signing.** Apple requires the OAuth `client_secret` to be a short-lived JWT signed with the developer's P-256 `.p8` key. The package mints, caches, and rotates one on demand.
 - **Encrypted token storage** on a per-user `apple_connections` model, with transparent refresh against `/auth/token` and automatic disconnection on `invalid_grant`.
 - A **scope registry** so any installed service package can contribute scopes to the single consent screen.
+- **Broker mode** (since 1.1.0): connect, callback, and refresh can run through an ArtisanPack UI OAuth broker, so a site holds no Apple client secret or `.p8` key.
+- **Stateless relay primitives** (since 1.1.0): an `AppleClient` that runs the Apple leg from runtime credentials without touching the session or database, for building brokers.
 - **Credential storage drivers** (config, database, or CMS Settings) so credentials can live wherever a project already keeps its secrets.
 
 Service packages retrieve a currently-valid access token through the `TokenProvider` seam and never touch the OAuth internals.
@@ -269,6 +273,51 @@ if ( $response->profile->hasName() ) {
 
 > Apple only releases the display name in the one-shot `user` form field, and only on the initial authorization for a given Services ID. Persist it on the first callback — subsequent authorizations never re-emit it, and there is no way to fetch it back from Apple later.
 
+## Broker mode
+
+*Since 1.1.0.* Instead of giving every site its own Services ID and `.p8` key, you can route connect, callback, and refresh through an ArtisanPack UI OAuth broker. The site holds only the broker's URL, its site ID, and its site secret:
+
+```env
+APPLE_OAUTH_MODE=broker
+APPLE_OAUTH_BROKER_URL=https://broker.example.com
+APPLE_OAUTH_BROKER_SITE_ID=site-123
+APPLE_OAUTH_BROKER_SITE_SECRET="1|plain-secret-from-the-broker"
+APPLE_OAUTH_BROKER_RETURN_URL=https://acme.example.com/apple/callback
+```
+
+Your connect route doesn't change, because `authorizationUrl()` returns a signed broker link. The broker sends the browser back to `return_url` with a **`GET`** carrying `code` and `state`. Pass those to `AppleOAuth::oauth()->handleCallback()` as usual, then call `tokens()->store()`. That route needs no CSRF exemption.
+
+The broker URL must be HTTPS (plain HTTP is allowed only for `localhost`, `*.localhost`, `*.test`, and loopback hosts). Hosts can supply the URL, site ID, and secret at runtime through the `ap.apple-oauth.broker.credentials` filter.
+
+If the site's license lapses, refreshes throw `LicenseExpiredException` (a `TokenRefreshException`) with `getRenewUrl()`. The connection stays connected, unlike a revoked grant. Check any `renew_url` that arrives on a query string with `AppleOAuth::oauth()->isTrustedRenewUrl()` before showing it.
+
+Full guide: [docs/broker-mode.md](docs/broker-mode.md).
+
+## Stateless client (for brokers)
+
+*Since 1.1.0.* `AppleOAuth::client( ?AppleCredentials )` returns an `AppleClient` that never touches the session or database. It's what a broker relays through:
+
+```php
+use ArtisanPackUI\AppleOAuth\OAuth\AppleClient;
+use ArtisanPackUI\AppleOAuth\OAuth\AppleCredentials;
+
+$client = AppleOAuth::client( new AppleCredentials(
+    clientId: 'com.acme.app.web', teamId: 'ABCDE12345', keyId: 'XXXXXXXXXX',
+    privateKey: $pem, redirectUri: 'https://broker.example.com/oauth/apple/callback',
+) );
+
+$url = $client->authorizationUrl( $state, [ 'name', 'email' ], $nonce );
+
+AppleClient::verifyState( $expectedState, $request->input( 'state', '' ) );
+$tokens = $client->exchangeCode( $request->input( 'code' ), $expectedNonce, $request->input( 'user' ) );
+
+$refreshed = $client->refresh( $refreshToken );
+
+return response()->json( $tokens->toArray() ); // the broker's wire shape
+```
+
+Full guide: [docs/stateless-client.md](docs/stateless-client.md).
+
 ## Registering scopes from a service package
 
 Sign in with Apple exposes only two scopes today — `name` and `email` — and the package always requests both, because Apple gates the one-shot `user` payload on requesting them. **Apple rejects any authorization request that includes a scope it does not recognize**, so today the filter hook is intentionally not something you should use to add extra scopes; it exists as a forward-compatible seam for the day Apple issues additional scopes (or for a downstream broker that swaps the authorization endpoint entirely).
@@ -349,6 +398,8 @@ Key options in `config/apple-oauth.php`:
 | Key | Default | Meaning |
 |---|---|---|
 | `driver` | `config` | Credential driver: `config`, `database`, or `cms`. |
+| `mode` | `direct` | `direct` or `broker`. See [Broker mode](#broker-mode). |
+| `broker.url` / `broker.site_id` / `broker.site_secret` / `broker.return_url` | `env('APPLE_OAUTH_BROKER_*')` | Broker connection settings, used only in broker mode. |
 | `client_id` | `env('APPLE_OAUTH_CLIENT_ID')` | The Services ID from Apple Developer. |
 | `team_id` | `env('APPLE_OAUTH_TEAM_ID')` | The 10-character Apple Developer team ID. |
 | `key_id` | `env('APPLE_OAUTH_KEY_ID')` | The 10-character Key ID of the `.p8` used to sign the client secret. |

@@ -4,7 +4,7 @@ title: Callback
 
 # Callback
 
-The "redeem the code, verify identity claims, hand back a `TokenResponse`" leg. Apple `form_post`s the response to a callback route you own; you delegate to [`OAuthManager::handleCallback()`](API-Reference/OAuth-Manager#handlecallback).
+The "redeem the code, verify identity claims, hand back a `TokenResponse`" leg. This page covers the default `direct` mode. In [broker mode](Broker-Mode#callback) the callback is a `GET` from the broker and needs no CSRF exemption. Apple `form_post`s the response to a callback route you own; you delegate to [`OAuthManager::handleCallback()`](API-Reference/OAuth-Manager#handlecallback).
 
 ## Route setup
 
@@ -73,7 +73,7 @@ Returns a [`TokenResponse`](API-Reference/OAuth-Manager#tokenresponse). Throws [
 ## What it does, step by step
 
 1. **Consumes session context.** Pulls `apple-oauth.state`, `apple-oauth.nonce`, and `apple-oauth.user_id` from the session — via `session->pull()`, so they're removed on read. Missing or empty `state` → `OAuthException("OAuth state mismatch; possible CSRF attempt.")`. Missing `user_id` → `OAuthException("OAuth session missing user context.")`.
-2. **Timing-safe state compare.** `hash_equals()` between the stored and returned `state`. Any mismatch → same "OAuth state mismatch" exception.
+2. **Timing-safe state compare.** `AppleClient::verifyState()` runs `hash_equals()` between the stored and returned `state`. Any mismatch → same "OAuth state mismatch" exception.
 3. **Loads credentials.** Reads `client_id`, `redirect_uri`, and optional `client_secret` from the active [credential driver](Drivers). Missing `client_id` or `redirect_uri` → `OAuthException("Apple OAuth credentials are not configured.")`. If no `client_secret` is on file, mints one via [`ClientSecretGenerator::generate()`](Client-Secret).
 4. **Refuses cleartext.** If `apple-oauth.endpoints.token` isn't `https://`, throws `OAuthException("Apple token endpoint must use HTTPS; refusing to transmit client_secret in cleartext.")` — the `client_secret` is a signed JWT and must not go over the wire in plaintext HTTP.
 5. **POSTs to `/auth/token`.** Form body: `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `client_secret`. Non-2xx response → `OAuthException("Apple code exchange failed: <error>")` where `<error>` is Apple's `error` field, or `"exchange_failed"` if the body wasn't parseable.

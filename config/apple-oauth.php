@@ -36,6 +36,42 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | OAuth mode
+    |--------------------------------------------------------------------------
+    |
+    | `direct` (the default) talks to Apple with this app's own Services ID
+    | and `.p8` key, as configured below. `broker` runs connect, callback and
+    | refresh through an OAuth broker instead, so the site never holds an
+    | Apple client secret or private key — only the broker settings below.
+    |
+    */
+
+    'mode' => env( 'APPLE_OAUTH_MODE', 'direct' ),
+
+    /*
+    |--------------------------------------------------------------------------
+    | OAuth broker
+    |--------------------------------------------------------------------------
+    |
+    | Used when `mode` is `broker`. `url` must be HTTPS (plain HTTP is only
+    | accepted for local development hosts). `return_url` is where the broker
+    | sends the browser back with its one-time `code`; it must be on the URL
+    | the site registered with the broker, and its route should call
+    | `AppleOAuth::oauth()->handleCallback()`. Hosts can supply url /
+    | site_id / site_secret at runtime via the
+    | `ap.apple-oauth.broker.credentials` filter instead.
+    |
+    */
+
+    'broker' => [
+        'url'         => env( 'APPLE_OAUTH_BROKER_URL' ),
+        'site_id'     => env( 'APPLE_OAUTH_BROKER_SITE_ID' ),
+        'site_secret' => env( 'APPLE_OAUTH_BROKER_SITE_SECRET' ),
+        'return_url'  => env( 'APPLE_OAUTH_BROKER_RETURN_URL' ),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Client credentials
     |--------------------------------------------------------------------------
     |
