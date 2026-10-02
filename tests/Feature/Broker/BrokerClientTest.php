@@ -12,24 +12,6 @@ use ArtisanPackUI\Hooks\Facades\Filter;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 
-/**
- * An unsigned id_token as the broker relays it from Apple.
- */
-function brokerIdToken( array $claims = [] ): string
-{
-    $claims = array_merge( [
-        'iss'   => 'https://appleid.apple.com',
-        'aud'   => 'com.workshop.broker',
-        'exp'   => time() + 3600,
-        'sub'   => '000123.broker.user',
-        'email' => 'claim@privaterelay.appleid.com',
-    ], $claims );
-
-    $b64 = fn ( string $s ): string => rtrim( strtr( base64_encode( $s ), '+/', '-_' ), '=' );
-
-    return $b64( '{"alg":"ES256"}' ) . '.' . $b64( (string) json_encode( $claims ) ) . '.signature';
-}
-
 beforeEach( function (): void {
     $this->credentials = new BrokerCredentials( 'https://workshop.test', 'site-123', '7|plain-site-secret' );
     $this->broker      = AppleOAuth::broker( $this->credentials );
