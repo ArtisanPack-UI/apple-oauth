@@ -1,5 +1,19 @@
 # ArtisanPack UI Apple OAuth Changelog
 
+## [Unreleased]
+
+### Added
+- **Stateless relay primitives** for OAuth brokers ([#22](https://github.com/ArtisanPack-UI/apple-oauth/issues/22)). `AppleOAuth::client( ?AppleCredentials )` returns an `AppleClient` built from runtime credentials (Services ID, Team ID, Key ID, inline `.p8` PEM, redirect URI) or the configured driver, and never touches the session or database. `authorizationUrl()` takes the caller's `state`, optional `nonce`, scopes and extra parameters, and keeps `response_mode=form_post`. `exchangeCode()` takes the expected nonce (or none) and the raw `user` form field, validates the id_token claims, and returns a `TokenResponse`. `refresh()` takes a raw refresh-token string and hands the same token back, with no `AppleConnection` required. `AppleClient::verifyState()` checks the caller's state.
+- `ClientSecretGenerator::generateFor()` / `forgetFor()` mint and cache the ES256 `client_secret` for runtime `AppleCredentials`.
+- `TokenResponse` gains `expiresIn`, `scopes`, `withUserId()`, `fromApple()`, `fromBroker()` and `toArray()` (the broker's wire shape). `AppleUserProfile` gains `displayName` and `fullName()`.
+- **Broker client mode** (`APPLE_OAUTH_MODE=broker`). Connect, callback and refresh run through an OAuth broker using only `apple-oauth.broker.url`, `site_id`, `site_secret` and `return_url`, so the site holds no Apple client secret or `.p8` key. Signed `/authorize` links, one-time code exchange at `/token` (the id_token `sub` becomes the stable user ID), and refreshes at `/refresh`. Broker credentials can come from the `ap.apple-oauth.broker.credentials` filter. `AppleOAuth::broker()` and `AppleOAuth::usesBroker()` expose the client and mode. The broker URL must be HTTPS (plain HTTP only for `localhost`, `*.localhost`, `*.test` and loopback hosts).
+- `LicenseExpiredException` (extends `TokenRefreshException`) for the broker's `402 license_expired` refresh response, carrying `getRenewUrl()`. The connection stays connected, unlike a revoked grant. `OAuthManager::isTrustedRenewUrl()` checks a `renew_url` from the broker's return before it is shown.
+- `OAuthException` and `TokenRefreshException` expose the OAuth error code via `getError()`.
+
+### Changed
+- `OAuthManager::handleCallback()` and `TokenManager::refresh()` are now thin wrappers over the stateless primitives. Behavior in the default `direct` mode is unchanged.
+- `TokenResponse::$userId` and `TokenResponse::$profile` are now nullable, for stateless responses and for refreshes without an id_token. Session-flow callbacks always set both. `TokenManager::store()` throws when `userId` is null.
+
 ## [1.0.0] - 2026-09-18
 
 ### Added

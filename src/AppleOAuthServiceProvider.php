@@ -144,6 +144,7 @@ class AppleOAuthServiceProvider extends ServiceProvider
                 $app->make( TokenManager::class ),
                 $app->make( ScopeRegistry::class ),
                 $app->make( AppleOAuthManager::class ),
+                $app->make( HttpFactory::class ),
             );
         } );
     }

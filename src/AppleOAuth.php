@@ -16,10 +16,15 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth;
 
+use ArtisanPackUI\AppleOAuth\Broker\BrokerClient;
+use ArtisanPackUI\AppleOAuth\Broker\BrokerCredentials;
+use ArtisanPackUI\AppleOAuth\OAuth\AppleClient;
+use ArtisanPackUI\AppleOAuth\OAuth\AppleCredentials;
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\OAuthManager;
 use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
 use ArtisanPackUI\AppleOAuth\Tokens\TokenManager;
+use Illuminate\Http\Client\Factory as HttpFactory;
 
 /**
  * Facade entry point for the Apple OAuth broker.
@@ -41,6 +46,7 @@ class AppleOAuth
         protected TokenManager $tokens,
         protected ScopeRegistry $scopes,
         protected AppleOAuthManager $manager,
+        protected ?HttpFactory $http = null,
     ) {
     }
 
@@ -93,5 +99,45 @@ class AppleOAuth
     public function scopes(): ScopeRegistry
     {
         return $this->scopes;
+    }
+
+    /**
+     * A stateless Sign in with Apple client.
+     *
+     * With no arguments it uses the configured credential driver. Pass
+     * explicit credentials to relay for another app, as an OAuth broker
+     * does; the client never touches the session or the database.
+     *
+     * @since 1.1.0
+     */
+    public function client( ?AppleCredentials $credentials = null ): AppleClient
+    {
+        return $this->oauth->client( $credentials );
+    }
+
+    /**
+     * A client for the OAuth broker, from explicit or configured credentials.
+     *
+     * @since 1.1.0
+     *
+     * @throws Exceptions\OAuthException When no credentials are passed and none are configured.
+     */
+    public function broker( ?BrokerCredentials $credentials = null ): BrokerClient
+    {
+        if ( null !== $credentials ) {
+            return new BrokerClient( $credentials, $this->http ?? app( HttpFactory::class ) );
+        }
+
+        return $this->oauth->brokerClient();
+    }
+
+    /**
+     * Whether the package is in broker client mode (`apple-oauth.mode` = `broker`).
+     *
+     * @since 1.1.0
+     */
+    public function usesBroker(): bool
+    {
+        return $this->oauth->usesBroker();
     }
 }

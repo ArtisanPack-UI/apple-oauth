@@ -59,9 +59,27 @@ class ClientSecretGenerator
      */
     public function generate(): string
     {
-        $teamId   = (string) ( $this->credentials->getTeamId() ?? '' );
-        $keyId    = (string) ( $this->credentials->getKeyId() ?? '' );
-        $clientId = (string) ( $this->credentials->getClientId() ?? '' );
+        return $this->generateFor( AppleCredentials::fromRepository( $this->credentials ) );
+    }
+
+    /**
+     * Return a currently-valid client_secret JWT for explicit credentials.
+     *
+     * Lets a caller holding credentials at runtime (such as an OAuth broker
+     * relaying for an app it does not configure globally) mint secrets
+     * without the bound {@see ConfigurationRepository}. A static
+     * `client_secret` on the credentials is NOT returned here; callers that
+     * honour it check it first (see {@see AppleClient::clientSecret()}).
+     *
+     * @since 1.1.0
+     *
+     * @throws OAuthException When required credentials are missing or the key cannot be loaded.
+     */
+    public function generateFor( AppleCredentials $credentials ): string
+    {
+        $teamId   = (string) ( $credentials->teamId ?? '' );
+        $keyId    = (string) ( $credentials->keyId ?? '' );
+        $clientId = $credentials->clientId;
 
         if ( '' === $teamId || '' === $keyId || '' === $clientId ) {
             throw new OAuthException(
@@ -72,7 +90,7 @@ class ClientSecretGenerator
         $ttl    = $this->resolveTtl();
         $leeway = $this->resolveLeeway( $ttl );
 
-        $cacheKey = self::CACHE_KEY_PREFIX . hash( 'sha256', $teamId . '|' . $keyId . '|' . $clientId );
+        $cacheKey = $this->cacheKey( $credentials );
 
         $cached = $this->cache->get( $cacheKey );
 
@@ -80,7 +98,7 @@ class ClientSecretGenerator
             return $cached;
         }
 
-        $jwt = $this->mint( $teamId, $keyId, $clientId, $ttl );
+        $jwt = $this->mint( $teamId, $keyId, $clientId, $ttl, (string) ( $credentials->privateKey ?? '' ) );
 
         $this->cache->put( $cacheKey, $jwt, max( 1, $ttl - $leeway ) );
 
@@ -94,13 +112,30 @@ class ClientSecretGenerator
      */
     public function forget(): void
     {
-        $teamId   = (string) ( $this->credentials->getTeamId() ?? '' );
-        $keyId    = (string) ( $this->credentials->getKeyId() ?? '' );
-        $clientId = (string) ( $this->credentials->getClientId() ?? '' );
+        $this->forgetFor( AppleCredentials::fromRepository( $this->credentials ) );
+    }
 
-        $cacheKey = self::CACHE_KEY_PREFIX . hash( 'sha256', $teamId . '|' . $keyId . '|' . $clientId );
+    /**
+     * Discard the cached client_secret for explicit credentials.
+     *
+     * @since 1.1.0
+     */
+    public function forgetFor( AppleCredentials $credentials ): void
+    {
+        $this->cache->forget( $this->cacheKey( $credentials ) );
+    }
 
-        $this->cache->forget( $cacheKey );
+    /**
+     * Cache key for a credential set, scoped to (team_id, key_id, client_id).
+     *
+     * @since 1.1.0
+     */
+    protected function cacheKey( AppleCredentials $credentials ): string
+    {
+        return self::CACHE_KEY_PREFIX . hash(
+            'sha256',
+            ( $credentials->teamId ?? '' ) . '|' . ( $credentials->keyId ?? '' ) . '|' . $credentials->clientId,
+        );
     }
 
     /**
@@ -108,9 +143,11 @@ class ClientSecretGenerator
      *
      * @since 1.0.0
      *
+     * @param  string  $privateKey  Inline PEM or a path to the `.p8` file.
+     *
      * @throws OAuthException When the private key cannot be loaded or signing fails.
      */
-    protected function mint( string $teamId, string $keyId, string $clientId, int $ttl ): string
+    protected function mint( string $teamId, string $keyId, string $clientId, int $ttl, string $privateKey ): string
     {
         $now = time();
 
@@ -132,7 +169,7 @@ class ClientSecretGenerator
             . '.'
             . $this->base64UrlEncode( (string) json_encode( $claims ) );
 
-        $signature = $this->sign( $signingInput );
+        $signature = $this->sign( $signingInput, $privateKey );
 
         return $signingInput . '.' . $this->base64UrlEncode( $signature );
     }
@@ -146,11 +183,13 @@ class ClientSecretGenerator
      *
      * @since 1.0.0
      *
+     * @param  string  $privateKey  Inline PEM or a path to the `.p8` file.
+     *
      * @throws OAuthException When the key cannot be loaded or signing fails.
      */
-    protected function sign( string $signingInput ): string
+    protected function sign( string $signingInput, string $privateKey ): string
     {
-        $key = $this->loadPrivateKey();
+        $key = $this->loadPrivateKey( $privateKey );
 
         $derSignature = '';
 
@@ -162,18 +201,21 @@ class ClientSecretGenerator
     }
 
     /**
-     * Load the configured `.p8` private key, from either an inline PEM string
-     * or a filesystem path.
+     * Load a `.p8` private key, from either an inline PEM string or a
+     * filesystem path. Defaults to the configured key.
      *
      * @since 1.0.0
+     * @since 1.1.0 Accepts the key material as an argument.
+     *
+     * @param  string|null  $raw  Inline PEM or a path; null reads the configured key.
      *
      * @throws OAuthException When the key material is missing or invalid.
      *
      * @return OpenSSLAsymmetricKey
      */
-    protected function loadPrivateKey()
+    protected function loadPrivateKey( ?string $raw = null )
     {
-        $raw = (string) ( $this->credentials->getPrivateKey() ?? '' );
+        $raw ??= (string) ( $this->credentials->getPrivateKey() ?? '' );
 
         if ( '' === $raw ) {
             throw new OAuthException( __( 'Apple OAuth private_key is not configured.' ) );

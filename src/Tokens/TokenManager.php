@@ -13,9 +13,13 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth\Tokens;
 
+use ArtisanPackUI\AppleOAuth\Broker\BrokerClient;
 use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
+use ArtisanPackUI\AppleOAuth\Exceptions\LicenseExpiredException;
+use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
 use ArtisanPackUI\AppleOAuth\Exceptions\TokenRefreshException;
 use ArtisanPackUI\AppleOAuth\Models\AppleConnection;
+use ArtisanPackUI\AppleOAuth\OAuth\AppleClient;
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\TokenResponse;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
@@ -36,7 +40,9 @@ use Illuminate\Support\Carbon;
  *
  * On refresh failure the connection is marked disconnected when Apple
  * returns `invalid_grant` (revoked grant) or when no refresh token was ever
- * stored, and a {@see TokenRefreshException} is thrown.
+ * stored, and a {@see TokenRefreshException} is thrown. Refreshes go to
+ * Apple through the stateless {@see AppleClient}, or through the OAuth
+ * broker when `apple-oauth.mode` is `broker`.
  *
  * @since 1.0.0
  */
@@ -64,23 +70,33 @@ class TokenManager
      * response omits them.
      *
      * @since 1.0.0
+     *
+     * @throws OAuthException When the response is not attributed to a user (a stateless response).
      */
     public function store( TokenResponse $response ): AppleConnection
     {
+        if ( null === $response->userId ) {
+            throw new OAuthException( __( 'Cannot store an Apple token response without a user; call withUserId() first.' ) );
+        }
+
         $connection = AppleConnection::firstOrNew( [ 'user_id' => $response->userId ] );
 
-        // `sub` is validated non-empty by OAuthManager::validateIdTokenClaims()
-        // before a TokenResponse ever reaches us, so a direct assignment is
-        // safe here. `email` is nullable — Apple omits it on re-authorizations
-        // after the first — so `??` preserves the previously-stored address.
-        $connection->apple_user_id     = $response->profile->sub;
-        $connection->email             = $response->profile->email ?? $connection->email;
+        // `sub` is validated non-empty before a code-exchange TokenResponse
+        // ever reaches us. `email` is nullable — Apple omits it on
+        // re-authorizations after the first — so `??` preserves the
+        // previously-stored address.
+        $connection->apple_user_id     = $response->profile?->sub ?? $connection->apple_user_id;
+        $connection->email             = $response->profile?->email ?? $connection->email;
         $connection->access_token      = $response->accessToken;
         $connection->id_token          = $response->idToken;
         $connection->token_type        = $response->tokenType;
         $connection->expires_at        = $response->expiresAt;
         $connection->status            = AppleConnection::STATUS_CONNECTED;
         $connection->disconnect_reason = null;
+
+        if ( [] !== $response->scopes ) {
+            $connection->scopes = $response->scopes;
+        }
 
         // Apple only issues a refresh_token on the initial authorization for
         // a given grant; re-authorizations without a new consent do not
@@ -120,7 +136,8 @@ class TokenManager
      *
      * @since 1.0.0
      *
-     * @throws TokenRefreshException
+     * @throws LicenseExpiredException When the broker reports the site license has lapsed. The connection stays connected.
+     * @throws TokenRefreshException   For any other failure. A revoked grant also marks the connection disconnected.
      */
     public function refresh( AppleConnection $connection ): string
     {
@@ -130,78 +147,64 @@ class TokenManager
             throw new TokenRefreshException( __( 'No refresh token stored for this connection.' ) );
         }
 
-        $clientId = (string) ( $this->credentials->getClientId() ?? '' );
+        $refreshToken = (string) $connection->refresh_token;
+        $tokenType    = (string) ( $connection->token_type ?: 'Bearer' );
 
-        if ( '' === $clientId ) {
-            throw new TokenRefreshException( __( 'Apple OAuth credentials are not configured.' ) );
-        }
-
-        $clientSecret = (string) ( $this->credentials->getClientSecret() ?? '' );
-
-        if ( '' === $clientSecret ) {
-            $clientSecret = $this->clientSecret->generate();
-        }
-
-        $endpoint = (string) $this->config->get(
-            'apple-oauth.endpoints.token',
-            'https://appleid.apple.com/auth/token',
-        );
-
-        if ( 'https' !== strtolower( (string) parse_url( $endpoint, PHP_URL_SCHEME ) ) ) {
-            throw new TokenRefreshException(
-                __( 'Apple token endpoint must use HTTPS; refusing to transmit client_secret in cleartext.' ),
-            );
-        }
-
-        $response = $this->http->asForm()->post( $endpoint, [
-            'client_id'     => $clientId,
-            'client_secret' => $clientSecret,
-            'refresh_token' => (string) $connection->refresh_token,
-            'grant_type'    => 'refresh_token',
-        ] );
-
-        if ( ! $response->successful() ) {
-            $body  = $response->json();
-            $error = is_array( $body ) ? ( $body[ 'error' ] ?? 'refresh_failed' ) : 'refresh_failed';
-
-            if ( 'invalid_grant' === $error ) {
+        try {
+            $tokens = BrokerClient::isEnabled( $this->config )
+                ? $this->brokerClient()->refresh( $refreshToken, $tokenType )
+                : AppleClient::make( $this->credentials, $this->http, $this->clientSecret, $this->config )
+                    ->refresh( $refreshToken, $tokenType );
+        } catch ( TokenRefreshException $e ) {
+            // Only a revoked grant disconnects. A lapsed broker license
+            // (LicenseExpiredException) leaves the connection intact so
+            // refreshes resume as soon as the license is renewed.
+            if ( 'invalid_grant' === $e->getError() ) {
                 $connection->markDisconnected( __( 'Refresh token revoked or expired.' ) );
             }
 
-            throw new TokenRefreshException(
-                __( 'Apple token refresh failed: :error', [ 'error' => (string) $error ] ),
-            );
+            throw $e;
         }
 
-        $payload = (array) $response->json();
-
-        if ( empty( $payload[ 'access_token' ] ) ) {
-            throw new TokenRefreshException( __( 'Apple token refresh response is missing access_token.' ) );
-        }
-
-        $connection->access_token = (string) $payload[ 'access_token' ];
-
-        if ( ! empty( $payload[ 'token_type' ] ) ) {
-            $connection->token_type = (string) $payload[ 'token_type' ];
-        }
+        $connection->access_token = $tokens->accessToken;
+        $connection->token_type   = $tokens->tokenType;
 
         // Apple always documents an `expires_in` on a successful refresh, but
         // fall back to the documented default (3600s / one hour) rather than
         // leaving `expires_at` in the past — otherwise every subsequent call
         // to `getValidAccessToken()` would treat the token as expired and
         // hammer `/auth/token` on a loop.
-        $expiresIn                = isset( $payload[ 'expires_in' ] ) ? (int) $payload[ 'expires_in' ] : 3600;
-        $connection->expires_at   = Carbon::now()->addSeconds( $expiresIn );
+        $connection->expires_at = $tokens->expiresAt ?? Carbon::now()->addSeconds( 3600 );
 
         // Apple typically does NOT rotate refresh tokens, but the OAuth2 spec
-        // permits it. Persist a new one when returned so a rotated grant
-        // does not silently disable future refreshes.
-        if ( ! empty( $payload[ 'refresh_token' ] ) ) {
-            $connection->refresh_token = (string) $payload[ 'refresh_token' ];
+        // permits it. The response carries a rotated one when returned, and
+        // the current one otherwise.
+        if ( null !== $tokens->refreshToken ) {
+            $connection->refresh_token = $tokens->refreshToken;
+        }
+
+        if ( [] !== $tokens->scopes ) {
+            $connection->scopes = $tokens->scopes;
         }
 
         $connection->save();
 
         return (string) $connection->access_token;
+    }
+
+    /**
+     * Broker client built from the configured broker credentials.
+     *
+     * @since 1.1.0
+     *
+     * @throws TokenRefreshException When the broker is not configured.
+     */
+    protected function brokerClient(): BrokerClient
+    {
+        try {
+            return BrokerClient::fromConfig( $this->config, $this->http );
+        } catch ( OAuthException $e ) {
+            throw new TokenRefreshException( $e->getMessage(), 'broker_not_configured', null, $e );
+        }
     }
 }
