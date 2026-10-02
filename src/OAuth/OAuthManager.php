@@ -13,13 +13,13 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth\OAuth;
 
+use ArtisanPackUI\AppleOAuth\Broker\BrokerClient;
 use ArtisanPackUI\AppleOAuth\Contracts\ConfigurationRepository;
 use ArtisanPackUI\AppleOAuth\Exceptions\OAuthException;
 use ArtisanPackUI\AppleOAuth\Scopes\ScopeRegistry;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Http\Client\Factory as HttpFactory;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
@@ -31,6 +31,9 @@ use Illuminate\Support\Str;
  * captures the user's display name and email from the one-shot `user`
  * payload Apple releases on first authorization.
  *
+ * The Apple calls themselves go through the stateless {@see AppleClient},
+ * or through {@see BrokerClient} when `apple-oauth.mode` is `broker`.
+ *
  * @since 1.0.0
  */
 class OAuthManager
@@ -41,7 +44,7 @@ class OAuthManager
 
     protected const SESSION_USER_ID = 'apple-oauth.user_id';
 
-    protected const APPLE_ISSUER    = 'https://appleid.apple.com';
+    protected const APPLE_ISSUER    = AppleClient::APPLE_ISSUER;
 
     public function __construct(
         protected ConfigRepository $config,
@@ -61,6 +64,9 @@ class OAuthManager
      * (on the first authorization) and refuses to release it over the
      * fragment or query response modes.
      *
+     * In broker mode this is the signed broker `/authorize` link instead;
+     * the broker runs the Apple leg (including the nonce) itself.
+     *
      * @since 1.0.0
      *
      * @param  int|string                $userId    The user we are connecting an Apple ID to.
@@ -70,14 +76,18 @@ class OAuthManager
      */
     public function authorizationUrl( int|string $userId, ?array $override = null ): string
     {
-        $clientId    = (string) ( $this->credentials->getClientId() ?? '' );
-        $redirectUri = (string) ( $this->credentials->getRedirectUri() ?? '' );
+        $scopes = $override ?? $this->scopes->all();
 
-        if ( '' === $clientId || '' === $redirectUri ) {
-            throw new OAuthException( __( 'Apple OAuth credentials are not configured.' ) );
+        if ( $this->usesBroker() ) {
+            return $this->buildBrokerAuthorizationUrl( $userId, $scopes );
         }
 
-        $scopes = $override ?? $this->scopes->all();
+        $client      = $this->client();
+        $credentials = $client->credentials();
+
+        if ( '' === $credentials->clientId || '' === (string) $credentials->redirectUri ) {
+            throw new OAuthException( __( 'Apple OAuth credentials are not configured.' ) );
+        }
 
         $state = Str::random( 40 );
         $nonce = Str::random( 40 );
@@ -86,44 +96,31 @@ class OAuthManager
         $this->session->put( self::SESSION_NONCE, $nonce );
         $this->session->put( self::SESSION_USER_ID, $userId );
 
-        $params = [
-            'client_id'     => $clientId,
-            'redirect_uri'  => $redirectUri,
-            'response_type' => 'code',
-            'response_mode' => 'form_post',
-            'scope'         => implode( ' ', $scopes ),
-            'state'         => $state,
-            'nonce'         => $nonce,
-        ];
-
-        $endpoint = (string) $this->config->get(
-            'apple-oauth.endpoints.authorize',
-            'https://appleid.apple.com/auth/authorize',
-        );
-
-        return $endpoint . '?' . http_build_query( $params );
+        return $client->authorizationUrl( $state, $scopes, $nonce );
     }
 
     /**
-     * Handle the callback Apple form-posts to the redirect URI.
+     * Handle the callback Apple form-posts to the redirect URI (or, in
+     * broker mode, the GET the broker sends back to the return URL).
      *
      * Verifies the returned `state` against the session, exchanges the
      * authorization `code` for tokens, and merges any first-authorization
      * `user` payload (name/email) into the returned profile. The `user`
      * argument, when present, is the raw JSON string Apple posts back —
-     * it is provided exactly once and must be captured immediately.
+     * it is provided exactly once and must be captured immediately. It is
+     * ignored in broker mode, where the broker relays the name as
+     * `account_name`.
      *
-     * The id_token's `iss`, `aud`, `exp`, and `nonce` claims are validated
-     * against the stored nonce and configured client. Full JWKS-backed
-     * signature verification is deferred to #3 (JWT signer) and #4
-     * (encrypted token store); until then, identity trust rests on the
-     * TLS-terminated server-to-server exchange with Apple plus these
-     * claim checks.
+     * In direct mode the id_token's `iss`, `aud`, `exp`, and `nonce` claims
+     * are validated against the stored nonce and configured client. Full
+     * JWKS-backed signature verification is not performed; identity trust
+     * rests on the TLS-terminated server-to-server exchange with Apple (or
+     * the broker) plus these claim checks.
      *
      * @since 1.0.0
      *
-     * @param  string       $code           Authorization code from Apple.
-     * @param  string       $returnedState  The state Apple echoed back.
+     * @param  string       $code           Authorization code from Apple, or the broker's one-time code.
+     * @param  string       $returnedState  The state Apple (or the broker) echoed back.
      * @param  string|null  $userPayload    Raw JSON `user` field from the first-authorization POST body.
      *
      * @throws OAuthException On state mismatch, missing session context, non-HTTPS
@@ -136,216 +133,99 @@ class OAuthManager
         $storedNonce = $this->session->pull( self::SESSION_NONCE );
         $userId      = $this->session->pull( self::SESSION_USER_ID );
 
-        if ( empty( $storedState ) || ! hash_equals( (string) $storedState, $returnedState ) ) {
-            throw new OAuthException( __( 'OAuth state mismatch; possible CSRF attempt.' ) );
-        }
+        AppleClient::verifyState( null === $storedState ? null : (string) $storedState, $returnedState );
 
         if ( null === $userId ) {
             throw new OAuthException( __( 'OAuth session missing user context.' ) );
         }
 
-        $clientId     = (string) ( $this->credentials->getClientId() ?? '' );
-        $redirectUri  = (string) ( $this->credentials->getRedirectUri() ?? '' );
-        $clientSecret = (string) ( $this->credentials->getClientSecret() ?? '' );
+        $tokens = $this->usesBroker()
+            ? $this->brokerClient()->exchangeCode( $code )
+            : $this->client()->exchangeCode( $code, (string) $storedNonce, $userPayload );
 
-        if ( '' === $clientId || '' === $redirectUri ) {
-            throw new OAuthException( __( 'Apple OAuth credentials are not configured.' ) );
-        }
-
-        if ( '' === $clientSecret ) {
-            $clientSecret = $this->clientSecret->generate();
-        }
-
-        $endpoint = (string) $this->config->get(
-            'apple-oauth.endpoints.token',
-            'https://appleid.apple.com/auth/token',
-        );
-
-        if ( 'https' !== strtolower( (string) parse_url( $endpoint, PHP_URL_SCHEME ) ) ) {
-            throw new OAuthException(
-                __( 'Apple token endpoint must use HTTPS; refusing to transmit client_secret in cleartext.' ),
-            );
-        }
-
-        $response = $this->http->asForm()->post( $endpoint, [
-            'grant_type'    => 'authorization_code',
-            'code'          => $code,
-            'redirect_uri'  => $redirectUri,
-            'client_id'     => $clientId,
-            'client_secret' => $clientSecret,
-        ] );
-
-        if ( ! $response->successful() ) {
-            $body  = $response->json();
-            $error = is_array( $body ) ? ( $body[ 'error' ] ?? 'exchange_failed' ) : 'exchange_failed';
-
-            throw new OAuthException(
-                __( 'Apple code exchange failed: :error', [ 'error' => (string) $error ] ),
-            );
-        }
-
-        $payload = (array) $response->json();
-
-        $accessToken = isset( $payload[ 'access_token' ] ) ? (string) $payload[ 'access_token' ] : '';
-        $idToken     = isset( $payload[ 'id_token' ] )     ? (string) $payload[ 'id_token' ]     : '';
-
-        if ( '' === $accessToken ) {
-            throw new OAuthException( __( 'Apple token response is missing access_token.' ) );
-        }
-
-        if ( '' === $idToken ) {
-            throw new OAuthException( __( 'Apple token response is missing id_token.' ) );
-        }
-
-        $claims = $this->decodeClaims( $idToken );
-        $this->validateIdTokenClaims( $claims, $clientId, (string) $storedNonce );
-
-        $expiresAt = isset( $payload[ 'expires_in' ] )
-            ? Carbon::now()->addSeconds( (int) $payload[ 'expires_in' ] )
-            : null;
-
-        $profile = $this->buildProfile( $claims, $userPayload );
-
-        return new TokenResponse(
-            userId:       $userId,
-            accessToken:  $accessToken,
-            refreshToken: isset( $payload[ 'refresh_token' ] ) ? (string) $payload[ 'refresh_token' ] : null,
-            idToken:      $idToken,
-            tokenType:    (string) ( $payload[ 'token_type' ] ?? 'Bearer' ),
-            expiresAt:    $expiresAt,
-            profile:      $profile,
-        );
+        return $tokens->withUserId( $userId );
     }
 
     /**
-     * Merge the id_token's `sub`/`email` claims with the one-shot `user`
-     * payload Apple only releases on the first authorization.
+     * Stateless Apple client, from explicit credentials or the configured driver.
      *
-     * The id_token email is the canonical source — it comes from the
-     * TLS-terminated server-to-server exchange with Apple. The one-shot
-     * `user` form field rides through the user's browser on redirect and
-     * is only trusted for the display name; if its `email` disagrees with
-     * the id_token claim it is discarded.
-     *
-     * @since 1.0.0
-     *
-     * @param  array<string, mixed>  $claims       Validated id_token claims.
-     * @param  string|null           $userPayload  Raw JSON `user` field from Apple's form POST.
+     * @since 1.1.0
      */
-    protected function buildProfile( array $claims, ?string $userPayload ): AppleUserProfile
+    public function client( ?AppleCredentials $credentials = null ): AppleClient
     {
-        $sub   = (string) $claims[ 'sub' ];
-        $email = isset( $claims[ 'email' ] ) ? (string) $claims[ 'email' ] : null;
-
-        $firstName = null;
-        $lastName  = null;
-
-        if ( null !== $userPayload && '' !== $userPayload ) {
-            $decoded = json_decode( $userPayload, true );
-
-            if ( is_array( $decoded ) ) {
-                if ( isset( $decoded[ 'name' ] ) && is_array( $decoded[ 'name' ] ) ) {
-                    $firstName = isset( $decoded[ 'name' ][ 'firstName' ] )
-                        ? (string) $decoded[ 'name' ][ 'firstName' ]
-                        : null;
-                    $lastName = isset( $decoded[ 'name' ][ 'lastName' ] )
-                        ? (string) $decoded[ 'name' ][ 'lastName' ]
-                        : null;
-                }
-            }
-        }
-
-        return new AppleUserProfile(
-            sub:       $sub,
-            email:     $email,
-            firstName: $firstName,
-            lastName:  $lastName,
-        );
+        return AppleClient::make( $credentials ?? $this->credentials, $this->http, $this->clientSecret, $this->config );
     }
 
     /**
-     * Decode the id_token JWT claims payload.
+     * Broker client built from the configured broker credentials.
      *
-     * Signature verification is deferred to #3/#4; identity trust rests on
-     * the TLS-terminated server-to-server exchange plus the claim checks
-     * in {@see validateIdTokenClaims()}.
+     * @since 1.1.0
      *
-     * @since 1.0.0
-     *
-     * @throws OAuthException When the JWT is malformed.
-     *
-     * @return array<string, mixed>
+     * @throws OAuthException When the broker is not configured.
      */
-    protected function decodeClaims( string $idToken ): array
+    public function brokerClient(): BrokerClient
     {
-        $parts = explode( '.', $idToken );
-
-        if ( 3 !== count( $parts ) ) {
-            throw new OAuthException( __( 'Apple id_token is malformed.' ) );
-        }
-
-        $payload = base64_decode( strtr( $parts[ 1 ], '-_', '+/' ), true );
-
-        if ( false === $payload ) {
-            throw new OAuthException( __( 'Apple id_token payload is not valid base64.' ) );
-        }
-
-        $claims = json_decode( $payload, true );
-
-        if ( ! is_array( $claims ) ) {
-            throw new OAuthException( __( 'Apple id_token payload is not a JSON object.' ) );
-        }
-
-        return $claims;
+        return BrokerClient::fromConfig( $this->config, $this->http );
     }
 
     /**
-     * Enforce the id_token claim requirements Sign in with Apple documents:
-     * issuer must be Apple, audience must match our Services ID, exp must
-     * be in the future, nonce must match the value stashed in the session,
-     * and sub must be a non-empty string.
+     * Whether the package is in broker client mode.
      *
-     * @since 1.0.0
-     *
-     * @param  array<string, mixed>  $claims
+     * @since 1.1.0
      */
-    protected function validateIdTokenClaims( array $claims, string $expectedAud, string $expectedNonce ): void
+    public function usesBroker(): bool
     {
-        $iss = isset( $claims[ 'iss' ] ) ? (string) $claims[ 'iss' ] : '';
+        return BrokerClient::isEnabled( $this->config );
+    }
 
-        if ( self::APPLE_ISSUER !== $iss ) {
-            throw new OAuthException(
-                __( 'Apple id_token issuer mismatch: :iss', [ 'iss' => $iss ] ),
-            );
+    /**
+     * Whether a license `renew_url` from the broker's return is safe to show
+     * the user.
+     *
+     * Only true in broker mode, for URLs on the broker's own host. The
+     * `renew_url` arrives on the return URL's query string, so anyone can
+     * forge it; check it here before linking to it.
+     *
+     * @since 1.1.0
+     */
+    public function isTrustedRenewUrl( ?string $url ): bool
+    {
+        if ( ! $this->usesBroker() ) {
+            return false;
         }
 
-        $aud = $claims[ 'aud' ] ?? '';
+        try {
+            return $this->brokerClient()->isTrustedRenewUrl( $url );
+        } catch ( OAuthException ) {
+            return false;
+        }
+    }
 
-        // Apple currently returns a scalar; guard against future array shapes.
-        if ( is_array( $aud ) ) {
-            $aud = array_map( 'strval', $aud );
-        } else {
-            $aud = [ (string) $aud ];
+    /**
+     * Build the signed broker `/authorize` URL. The broker runs the nonce
+     * with Apple itself, so only state and the user are kept in the session.
+     *
+     * @since 1.1.0
+     *
+     * @param  array<int, string>  $scopes  Scopes to request.
+     *
+     * @throws OAuthException When the broker or its return URL is not configured.
+     */
+    protected function buildBrokerAuthorizationUrl( int|string $userId, array $scopes ): string
+    {
+        $broker    = $this->brokerClient();
+        $returnUrl = (string) $this->config->get( 'apple-oauth.broker.return_url', '' );
+
+        if ( '' === $returnUrl ) {
+            throw new OAuthException( __( 'Set apple-oauth.broker.return_url to use the Apple OAuth broker.' ) );
         }
 
-        if ( ! in_array( $expectedAud, $aud, true ) ) {
-            throw new OAuthException( __( 'Apple id_token audience mismatch.' ) );
-        }
+        $state = Str::random( 40 );
 
-        if ( ! isset( $claims[ 'exp' ] ) || (int) $claims[ 'exp' ] <= time() ) {
-            throw new OAuthException( __( 'Apple id_token is expired.' ) );
-        }
+        $this->session->put( self::SESSION_STATE, $state );
+        $this->session->forget( self::SESSION_NONCE );
+        $this->session->put( self::SESSION_USER_ID, $userId );
 
-        $tokenNonce = isset( $claims[ 'nonce' ] ) ? (string) $claims[ 'nonce' ] : '';
-
-        if ( '' === $expectedNonce || ! hash_equals( $expectedNonce, $tokenNonce ) ) {
-            throw new OAuthException( __( 'Apple id_token nonce mismatch.' ) );
-        }
-
-        $sub = isset( $claims[ 'sub' ] ) ? (string) $claims[ 'sub' ] : '';
-
-        if ( '' === $sub ) {
-            throw new OAuthException( __( 'Apple id_token is missing sub claim.' ) );
-        }
+        return $broker->authorizationUrl( $state, $returnUrl, $scopes );
     }
 }

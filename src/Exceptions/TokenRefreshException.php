@@ -13,6 +13,7 @@ declare( strict_types=1 );
 
 namespace ArtisanPackUI\AppleOAuth\Exceptions;
 
+use ArtisanPackUI\AppleOAuth\Exceptions\Concerns\CarriesOAuthError;
 use RuntimeException;
 
 /**
@@ -27,4 +28,5 @@ use RuntimeException;
  */
 class TokenRefreshException extends RuntimeException
 {
+    use CarriesOAuthError;
 }
