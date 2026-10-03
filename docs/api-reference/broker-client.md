@@ -72,7 +72,15 @@ POSTs `refresh_token=…&provider=apple` to `{url}/api/v1/oauth/refresh`. The re
 
 ### `isTrustedRenewUrl( ?string $url ): bool`
 
-`true` only when `$url` is on the broker's host and uses HTTPS, or uses HTTP when the broker itself is plain HTTP. Never accepts a downgrade from an HTTPS broker. Use it before showing a `renew_url` that arrived on a query string. `OAuthManager::isTrustedRenewUrl()` wraps this and also returns `false` outside broker mode.
+Whether a `renew_url` is safe to link to. Use it before showing a `renew_url` that arrived on a query string. Returns `true` only when the URL:
+
+- has no backslashes, whitespace, control characters, or userinfo (`user:pass@`), and `parse_url()` can parse it,
+- is on the broker's own host, and
+- uses HTTPS, or HTTP when the broker itself is plain HTTP. A downgrade from an HTTPS broker is never accepted.
+
+The first rule (*since 1.2.0*) rejects URLs that PHP and browsers parse differently. For an HTTPS broker at `workshop.test`, PHP reads the host of `https://evil.test\@workshop.test/renew` as `workshop.test`, but a browser sends it to `evil.test`.
+
+`OAuthManager::isTrustedRenewUrl()` wraps this and also returns `false` outside broker mode.
 
 ## `BrokerCredentials`
 

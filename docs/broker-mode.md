@@ -127,6 +127,8 @@ Route::get( '/apple/callback', function ( Request $request ) {
 
 `handleCallback()` verifies `state` against the session exactly as in direct mode. Then it POSTs the one-time code to `{broker.url}/api/v1/oauth/token`, authenticated with the site secret. The id_token `sub` from the broker's response becomes the profile's `sub`, which is Apple's stable user ID. If the response has no usable id_token, the exchange throws, because the connection can't be tied to an Apple account without it. The broker's `account_email` and `account_name` take precedence over the id_token's claims. The name lands on `$response->profile->displayName`, and `$response->profile->fullName()` returns it.
 
+`isTrustedRenewUrl()` only accepts a `renew_url` on the broker's own host, over HTTPS (or HTTP for a plain-HTTP local broker). It also rejects URLs that PHP and browsers could parse differently, such as ones with backslashes, whitespace, control characters or userinfo, so a forged `https://evil.test\@broker.test/renew` isn't trusted. See [`BrokerClient::isTrustedRenewUrl()`](API-Reference/Broker-Client) for the full rules.
+
 ### Refresh
 
 `TokenManager::refresh()` and `getValidAccessToken()` POST the stored refresh token to `{broker.url}/api/v1/oauth/refresh` with `provider=apple`. Refreshes don't need Apple credentials. Error handling follows direct mode, plus one extra case:

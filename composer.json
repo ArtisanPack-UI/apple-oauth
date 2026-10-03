@@ -3,7 +3,7 @@
   "description": "Shared Sign in with Apple OAuth2 authentication, client-secret signing, token storage/refresh, and scope management that powers ArtisanPack UI's Apple service integrations, with an optional OAuth broker mode.",
   "type": "library",
   "license": "MIT",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "keywords": [
     "laravel",
     "apple",

@@ -217,6 +217,7 @@ it( 'only trusts renew URLs on the broker host, and only in broker mode', functi
 
     expect( $manager->isTrustedRenewUrl( 'https://workshop.test/renew' ) )->toBeTrue();
     expect( $manager->isTrustedRenewUrl( 'https://evil.test/renew' ) )->toBeFalse();
+    expect( $manager->isTrustedRenewUrl( 'https://evil.test\\@workshop.test/renew' ) )->toBeFalse();
 
     config()->set( 'apple-oauth.mode', 'direct' );
 
