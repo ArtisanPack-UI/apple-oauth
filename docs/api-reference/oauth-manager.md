@@ -108,7 +108,7 @@ public function usesBroker(): bool
 public function isTrustedRenewUrl( ?string $url ): bool
 ```
 
-*Since 1.1.0.* Returns whether a license `renew_url` from the broker's return is safe to show the user. It's `true` only in broker mode, for URLs on the broker's own host. The `renew_url` arrives on the query string, so anyone can forge it, so check it here before linking to it. Returns `false` (rather than throwing) when the broker isn't configured.
+*Since 1.1.0.* Returns whether a license `renew_url` from the broker's return is safe to show the user. It's `true` only in broker mode, for URLs on the broker's own host that a browser will also resolve to that host. Delegates to [`BrokerClient::isTrustedRenewUrl()`](API-Reference/Broker-Client), which lists the full rules; since 1.2.0 that includes rejecting backslashes, whitespace, control characters and userinfo. The `renew_url` arrives on the query string, so anyone can forge it, so check it here before linking to it. Returns `false` (rather than throwing) when the broker isn't configured.
 
 ## `TokenResponse`
 

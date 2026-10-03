@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-03
+
+### Security
+- `BrokerClient::isTrustedRenewUrl()` (and `OAuthManager::isTrustedRenewUrl()`, which wraps it) now rejects license `renew_url` values that PHP's `parse_url()` and browsers parse differently ([#25](https://github.com/ArtisanPack-UI/apple-oauth/issues/25)). URLs containing backslashes, whitespace or control characters, URLs `parse_url()` can't parse, and URLs with userinfo are refused before the scheme and broker-host checks. Previously, for an HTTPS broker at `workshop.test`, a forged `https://evil.test\@workshop.test/renew` was trusted because PHP read its host as `workshop.test`, while a browser sends it to `evil.test`. Only affects broker mode.
+
+### Documentation
+- The [`BrokerClient`](docs/api-reference/broker-client.md) and [`OAuthManager`](docs/api-reference/oauth-manager.md) API references and [Broker Mode](docs/broker-mode.md) list the full set of `renew_url` trust rules.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added
