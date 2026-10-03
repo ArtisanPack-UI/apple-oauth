@@ -43,7 +43,7 @@ it( 'builds a signed authorize link that matches the broker contract', function 
     $expected = hash_hmac(
         'sha256',
         "apple\n" . http_build_query( $unsigned, '', '&', PHP_QUERY_RFC3986 ),
-        hash( 'sha256', 'plain-site-secret' ),
+        hash_hmac( 'sha256', 'jmwd-workshop:oauth-authorize', 'plain-site-secret' ),
     );
 
     expect( $params['signature'] )->toBe( $expected );
@@ -60,7 +60,15 @@ it( 'omits scopes so the broker grants every allowed scope', function (): void {
 it( 'keys signatures with the whole secret when it has no id prefix', function (): void {
     $credentials = new BrokerCredentials( 'https://workshop.test', 'site-123', 'no-pipe-secret' );
 
-    expect( $credentials->signingKey() )->toBe( hash( 'sha256', 'no-pipe-secret' ) );
+    expect( $credentials->signingKey() )->toBe( hash_hmac( 'sha256', 'jmwd-workshop:oauth-authorize', 'no-pipe-secret' ) );
+} );
+
+it( 'derives the signing key the broker verifies, not the hash it stores', function (): void {
+    $credentials = new BrokerCredentials( 'https://workshop.test', '42', '42|keystone-test-secret' );
+
+    expect( $credentials->signingKey() )
+        ->toBe( 'f8bcb6d68bd8744f4aeaf3346e8a27dc81152888e8d592a1c662e2fbf330ce68' )
+        ->not->toBe( hash( 'sha256', 'keystone-test-secret' ) );
 } );
 
 it( 'exchanges the one-time code at the broker with the site secret as bearer', function (): void {

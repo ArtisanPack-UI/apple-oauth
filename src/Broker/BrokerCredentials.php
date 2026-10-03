@@ -28,6 +28,14 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 final class BrokerCredentials
 {
     /**
+     * The label the `/authorize` signing key is derived under, so it can't
+     * be mistaken for any other use of the site secret.
+     *
+     * @since 1.3.0
+     */
+    public const SIGNING_KEY_LABEL = 'jmwd-workshop:oauth-authorize';
+
+    /**
      * @since 1.1.0
      *
      * @param  string  $url         Broker base URL, without a trailing slash.
@@ -118,17 +126,21 @@ final class BrokerCredentials
     /**
      * The HMAC key used to sign `/authorize` links.
      *
-     * The broker keys signatures with the SHA-256 of the plain part of the
-     * site secret (everything after the `|`). A secret without a `|` is
-     * treated as all plain part.
+     * The broker keys signatures with
+     * `hex( HMAC-SHA256( key: secretPart, message: SIGNING_KEY_LABEL ) )`,
+     * where `secretPart` is the plain part of the site secret (everything
+     * after the `|`). A secret without a `|` is treated as all plain part.
+     * The key is never the SHA-256 the broker stores, so a leak of the
+     * broker's database alone can't forge links.
      *
      * @since 1.1.0
+     * @since 1.3.0 Derived with HMAC under {@see self::SIGNING_KEY_LABEL} instead of a plain SHA-256.
      */
     public function signingKey(): string
     {
         $separator = strpos( $this->siteSecret, '|' );
         $plain     = false === $separator ? $this->siteSecret : substr( $this->siteSecret, $separator + 1 );
 
-        return hash( 'sha256', $plain );
+        return hash_hmac( 'sha256', self::SIGNING_KEY_LABEL, $plain );
     }
 }

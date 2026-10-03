@@ -62,12 +62,12 @@ Throws `OAuthException` when the broker returns an error (`getError()` and `getR
 
 ### `refresh( string $refreshToken, string $tokenType = 'Bearer' ): TokenResponse`
 
-POSTs `refresh_token=…&provider=apple` to `{url}/api/v1/oauth/refresh`. The returned response keeps `$refreshToken`, since the broker sends none back.
+POSTs `refresh_token=…&provider=apple` to `{url}/api/v1/oauth/refresh`. The broker always returns a refresh token (rotated, or the same one); `$refreshToken` is only kept when a response carries none.
 
 | Broker result | Throws |
 |---|---|
 | HTTP 402, or `error=license_expired` | [`LicenseExpiredException`](API-Reference/Exceptions#licenseexpiredexception), with `getRenewUrl()` |
-| Any other error | `TokenRefreshException`. `getError()` is the broker's code, e.g. `invalid_grant`. |
+| Any other error | `TokenRefreshException`. `getError()` is the broker's code, e.g. `invalid_grant`, or `refresh_superseded` (HTTP 409) when another request rotated the token moments ago. |
 | 2xx without `access_token` | `TokenRefreshException` (`refresh_failed`) |
 
 ### `isTrustedRenewUrl( ?string $url ): bool`
@@ -104,4 +104,4 @@ final class BrokerCredentials
 - **Constructor.** Throws `OAuthException` when `$url` isn't secure (see `isSecureUrl()`).
 - **`isSecureUrl()`.** Returns `true` for HTTPS URLs. Returns `true` for HTTP only on `localhost`, `*.localhost`, `*.test`, `127.x.x.x`, and `::1`.
 - **`fromConfig()`.** Reads `apple-oauth.broker.{url,site_id,site_secret}`, passes them through the `ap.apple-oauth.broker.credentials` filter, then trims them (and any trailing `/` on the URL). Returns `null` when any value is empty.
-- **`signingKey()`.** Returns the SHA-256 of the plain part of the site secret (after the `|`). A secret without `|` is treated as entirely plain.
+- **`signingKey()`.** Returns `hash_hmac( 'sha256', BrokerCredentials::SIGNING_KEY_LABEL, $secretPart )`, where `SIGNING_KEY_LABEL` is `jmwd-workshop:oauth-authorize` and `$secretPart` is the plain part of the site secret (after the `|`). A secret without `|` is treated as entirely plain. Before 1.3.0 this was the SHA-256 of the plain part, which the broker no longer accepts.

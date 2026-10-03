@@ -80,7 +80,9 @@ Your app                        Broker                         Apple
 
 - `state` is a random 40-character string. It's stored in the session together with the user ID. No nonce is stored, because the broker runs the nonce with Apple itself.
 - `expires` is five minutes out. The broker accepts at most ten, so this leaves room for clock skew.
-- `signature` is an HMAC-SHA256 over `"apple\n" . <sorted query string>`. The key is the SHA-256 of the plain part of the site secret (everything after the `|`).
+- `signature` is an HMAC-SHA256 over `"apple\n" . <sorted query string>`. The key is `hash_hmac( 'sha256', 'jmwd-workshop:oauth-authorize', $secretPart )`, where `$secretPart` is the plain part of the site secret (everything after the `|`). It's never the SHA-256 the broker stores, so a leak of the broker's database alone can't forge links.
+
+> **Upgrading from 1.1 or 1.2:** those versions keyed links with `hash( 'sha256', $secretPart )`, which the broker no longer accepts. A site registered before the broker switched keys needs a new site secret from the broker admin (or must register again) before it can connect an account.
 - `scopes` is the [`ScopeRegistry`](Scopes) union, or your `$override`.
 
 Throws [`OAuthException`](API-Reference/Exceptions#oauthexception) when the broker isn't configured or `broker.return_url` is empty.
@@ -131,13 +133,15 @@ Route::get( '/apple/callback', function ( Request $request ) {
 
 ### Refresh
 
-`TokenManager::refresh()` and `getValidAccessToken()` POST the stored refresh token to `{broker.url}/api/v1/oauth/refresh` with `provider=apple`. Refreshes don't need Apple credentials. Error handling follows direct mode, plus one extra case:
+`TokenManager::refresh()` and `getValidAccessToken()` POST the stored refresh token to `{broker.url}/api/v1/oauth/refresh` with `provider=apple`. Refreshes don't need Apple credentials. Refreshes of one connection are serialized with a cache lock (when the cache store supports locks): a request that waited for another's refresh uses the tokens it saved instead of refreshing again. Error handling follows direct mode, plus these cases:
 
 | Broker response | Exception | Connection |
 |---|---|---|
 | `invalid_grant` | `TokenRefreshException`, `getError() === 'invalid_grant'` | Marked **disconnected**. The user must reconnect. |
+| HTTP `409` / `refresh_superseded` | `TokenRefreshException`, `getError() === 'refresh_superseded'` | **Stays connected.** Another request rotated the refresh token moments ago. If it has saved its tokens by the time the error arrives, those are returned instead of throwing. |
 | HTTP `402` / `license_expired` | [`LicenseExpiredException`](API-Reference/Exceptions#licenseexpiredexception) with `getRenewUrl()` | **Stays connected.** Refreshes resume once the license is renewed. |
 | Anything else | `TokenRefreshException`, `getError()` = broker's code | Left as-is. Transient, so retry later. |
+| Another request held the refresh lock for more than 10 seconds | `TokenRefreshException`, `getError() === 'refresh_in_progress'` | Left as-is. |
 | Broker not configured | `TokenRefreshException`, `getError() === 'broker_not_configured'` | Left as-is. |
 
 ```php
