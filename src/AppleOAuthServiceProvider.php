@@ -118,6 +118,7 @@ class AppleOAuthServiceProvider extends ServiceProvider
                 $app->make( HttpFactory::class ),
                 $app->make( ClientSecretGenerator::class ),
                 $app->make( ConfigurationRepository::class ),
+                $app->make( CacheRepository::class ),
             );
         } );
 

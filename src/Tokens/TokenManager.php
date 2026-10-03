@@ -22,6 +22,10 @@ use ArtisanPackUI\AppleOAuth\Models\AppleConnection;
 use ArtisanPackUI\AppleOAuth\OAuth\AppleClient;
 use ArtisanPackUI\AppleOAuth\OAuth\ClientSecretGenerator;
 use ArtisanPackUI\AppleOAuth\OAuth\TokenResponse;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Carbon;
@@ -44,15 +48,49 @@ use Illuminate\Support\Carbon;
  * Apple through the stateless {@see AppleClient}, or through the OAuth
  * broker when `apple-oauth.mode` is `broker`.
  *
+ * Refreshes of one connection are serialized with a cache lock (when the
+ * cache store supports locks), so two requests racing on an expired token
+ * make one refresh between them. A broker that rotates refresh tokens
+ * would otherwise refuse the losing request's (now superseded) token.
+ *
  * @since 1.0.0
  */
 class TokenManager
 {
+    /**
+     * The broker's error for a refresh token another request rotated
+     * moments ago. Not terminal: the winning request holds the new tokens.
+     *
+     * @since 1.3.0
+     */
+    public const REFRESH_SUPERSEDED = 'refresh_superseded';
+
+    /**
+     * How long a refresh lock is held at most, in seconds.
+     *
+     * @since 1.3.0
+     */
+    public const REFRESH_LOCK_SECONDS = 30;
+
+    /**
+     * How long to wait for another request's refresh, in seconds.
+     *
+     * @since 1.3.0
+     */
+    public const REFRESH_LOCK_WAIT_SECONDS = 10;
+
+    /**
+     * @since 1.0.0
+     * @since 1.3.0 Accepts the cache that holds refresh locks.
+     *
+     * @param  CacheRepository|null  $cache  Cache whose store holds refresh locks; refreshes aren't serialized without one.
+     */
     public function __construct(
         protected ConfigRepository $config,
         protected HttpFactory $http,
         protected ClientSecretGenerator $clientSecret,
         protected ConfigurationRepository $credentials,
+        protected ?CacheRepository $cache = null,
     ) {
     }
 
@@ -134,13 +172,58 @@ class TokenManager
     /**
      * Force a refresh regardless of expiry.
      *
+     * If another request refreshed the connection while this one waited
+     * for the refresh lock, its tokens are used instead of refreshing again.
+     *
      * @since 1.0.0
+     * @since 1.3.0 Serialized per connection; a superseded refresh token never disconnects.
      *
      * @throws LicenseExpiredException When the broker reports the site license has lapsed. The connection stays connected.
      * @throws TokenRefreshException   For any other failure. A revoked grant also marks the connection disconnected.
      */
     public function refresh( AppleConnection $connection ): string
     {
+        $seenAccessToken = (string) $connection->access_token;
+        $lock            = $this->refreshLock( $connection );
+
+        if ( null === $lock ) {
+            return $this->refreshNow( $connection, $seenAccessToken );
+        }
+
+        try {
+            $lock->block( self::REFRESH_LOCK_WAIT_SECONDS );
+        } catch ( LockTimeoutException $e ) {
+            throw new TokenRefreshException(
+                __( 'Another request is still refreshing this Apple connection.' ),
+                'refresh_in_progress',
+                null,
+                $e,
+            );
+        }
+
+        try {
+            return $this->refreshNow( $connection, $seenAccessToken );
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Refresh the connection, unless another request already did.
+     *
+     * @since 1.3.0
+     *
+     * @param  string  $seenAccessToken  The access token the caller saw before waiting for the lock.
+     *
+     * @throws LicenseExpiredException
+     * @throws TokenRefreshException
+     */
+    protected function refreshNow( AppleConnection $connection, string $seenAccessToken ): string
+    {
+        if ( null !== ( $accessToken = $this->refreshedElsewhere( $connection, $seenAccessToken ) ) ) {
+            return $accessToken;
+        }
+
         if ( empty( $connection->refresh_token ) ) {
             $connection->markDisconnected( __( 'Missing refresh token.' ) );
 
@@ -156,9 +239,22 @@ class TokenManager
                 : AppleClient::make( $this->credentials, $this->http, $this->clientSecret, $this->config )
                     ->refresh( $refreshToken, $tokenType );
         } catch ( TokenRefreshException $e ) {
+            // Another request (another server, or one without the lock)
+            // may have rotated the token first and saved its tokens. If it
+            // disconnected the connection instead, report the original error.
+            try {
+                $accessToken = $this->refreshedElsewhere( $connection, $seenAccessToken );
+            } catch ( TokenRefreshException ) {
+                throw $e;
+            }
+
+            if ( null !== $accessToken ) {
+                return $accessToken;
+            }
+
             // Only a revoked grant disconnects. A lapsed broker license
-            // (LicenseExpiredException) leaves the connection intact so
-            // refreshes resume as soon as the license is renewed.
+            // (LicenseExpiredException) or a superseded refresh token
+            // leaves the connection intact.
             if ( 'invalid_grant' === $e->getError() ) {
                 $connection->markDisconnected( __( 'Refresh token revoked or expired.' ) );
             }
@@ -190,6 +286,54 @@ class TokenManager
         $connection->save();
 
         return (string) $connection->access_token;
+    }
+
+    /**
+     * Get the access token another request saved for the connection since
+     * the caller saw it, loading its tokens onto the model, or null when
+     * the stored connection hasn't changed.
+     *
+     * @since 1.3.0
+     *
+     * @throws TokenRefreshException When the stored connection was deleted or disconnected meanwhile.
+     */
+    protected function refreshedElsewhere( AppleConnection $connection, string $seenAccessToken ): ?string
+    {
+        if ( ! $connection->exists ) {
+            return null;
+        }
+
+        $current = $connection->newQuery()->whereKey( $connection->getKey() )->first();
+
+        if ( null === $current || ! $current->isConnected() ) {
+            throw new TokenRefreshException( __( 'Apple connection is disconnected.' ) );
+        }
+
+        if ( empty( $current->access_token ) || (string) $current->access_token === $seenAccessToken || $current->isExpired() ) {
+            return null;
+        }
+
+        $connection->setRawAttributes( $current->getAttributes(), true );
+
+        return (string) $connection->access_token;
+    }
+
+    /**
+     * The lock that serializes refreshes of the connection, or null when
+     * there's no cache, or its store can't lock.
+     *
+     * @since 1.3.0
+     */
+    protected function refreshLock( AppleConnection $connection ): ?Lock
+    {
+        if ( null === $this->cache || ! $connection->exists || ! $this->cache->getStore() instanceof LockProvider ) {
+            return null;
+        }
+
+        return $this->cache->getStore()->lock(
+            'apple-oauth:refresh:' . $connection->getKey(),
+            self::REFRESH_LOCK_SECONDS,
+        );
     }
 
     /**

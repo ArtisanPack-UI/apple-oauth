@@ -201,6 +201,71 @@ it( 'keeps the connection on a transient broker failure', function (): void {
     expect( $connection->fresh()->isConnected() )->toBeTrue();
 } );
 
+it( 'keeps the connection when the broker says the refresh token was superseded', function (): void {
+    Http::fake( [ 'workshop.test/*' => Http::response( [ 'error' => 'refresh_superseded' ], 409 ) ] );
+
+    $connection = expiredAppleConnection();
+
+    try {
+        app( TokenManager::class )->refresh( $connection );
+        $this->fail( 'Expected a TokenRefreshException.' );
+    } catch ( TokenRefreshException $e ) {
+        expect( $e->getError() )->toBe( TokenManager::REFRESH_SUPERSEDED );
+    }
+
+    expect( $connection->fresh()->isConnected() )->toBeTrue();
+} );
+
+it( 'uses the tokens a concurrent request saved when its own refresh loses the race', function (): void {
+    $connection = expiredAppleConnection();
+
+    Http::fake( function () use ( $connection ) {
+        // The winning request saves its rotated tokens before this one's
+        // refresh answers.
+        AppleConnection::whereKey( $connection->getKey() )->first()->forceFill( [
+            'access_token'  => 'winner-access',
+            'refresh_token' => 'winner-refresh',
+            'expires_at'    => Carbon::now()->addHour(),
+        ] )->save();
+
+        return Http::response( [ 'error' => 'invalid_grant' ], 400 );
+    } );
+
+    expect( app( TokenManager::class )->refresh( $connection ) )->toBe( 'winner-access' );
+    expect( $connection->refresh_token )->toBe( 'winner-refresh' );
+    expect( $connection->fresh()->isConnected() )->toBeTrue();
+} );
+
+it( 'skips the refresh when another request already refreshed the connection', function (): void {
+    Http::fake();
+
+    $stale = expiredAppleConnection();
+    AppleConnection::whereKey( $stale->getKey() )->first()->forceFill( [
+        'access_token' => 'already-fresh',
+        'expires_at'   => Carbon::now()->addHour(),
+    ] )->save();
+
+    expect( app( TokenManager::class )->getValidAccessToken( $stale ) )->toBe( 'already-fresh' );
+
+    Http::assertNothingSent();
+} );
+
+it( 'holds a per-connection lock while it refreshes', function (): void {
+    $connection        = expiredAppleConnection();
+    $lockKey           = 'apple-oauth:refresh:' . $connection->getKey();
+    $heldDuringRefresh = null;
+
+    Http::fake( function () use ( $lockKey, &$heldDuringRefresh ) {
+        $heldDuringRefresh = ! cache()->lock( $lockKey, 30 )->get();
+
+        return Http::response( appleBrokerPayload( [ 'access_token' => 'fresh' ] ) );
+    } );
+
+    expect( app( TokenManager::class )->refresh( $connection ) )->toBe( 'fresh' );
+    expect( $heldDuringRefresh )->toBeTrue();
+    expect( cache()->lock( $lockKey, 30 )->get() )->toBeTrue();
+} );
+
 it( 'raises a refresh exception when the broker is not configured', function (): void {
     config()->set( 'apple-oauth.broker.url', null );
 

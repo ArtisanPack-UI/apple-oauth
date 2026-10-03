@@ -63,6 +63,8 @@ Force a refresh regardless of expiry. Bypasses the `isExpired()` check and alway
 
 Same throw semantics as `getValidAccessToken()`. When Apple or the broker returns `error=invalid_grant`, the connection is `markDisconnected()`ed with reason `"Refresh token revoked or expired."` before the exception is thrown.
 
+Refreshes of one connection are serialized with a cache lock (`apple-oauth:refresh:{id}`, held up to 30 seconds) when the cache store supports locks. After taking the lock, and again if the refresh fails, the stored connection is re-read: if another request saved a newer, unexpired access token meanwhile, that token is loaded onto the model and returned instead. So a refresh that loses a race to a rotating broker (`refresh_superseded`, or `invalid_grant` after the winner saved) never disconnects a working connection.
+
 ## Failure-mode summary
 
 | Exception message | Trigger |
@@ -73,6 +75,7 @@ Same throw semantics as `getValidAccessToken()`. When Apple or the broker return
 | `Apple token endpoint must use HTTPS; refusing to transmit client_secret in cleartext.` | `apple-oauth.endpoints.token` was overridden to `http://`. |
 | `Apple token refresh failed: <error>` | Apple returned non-2xx. `invalid_grant` also triggers `markDisconnected( 'Refresh token revoked or expired.' )`. |
 | `Apple token refresh response is missing access_token.` | Apple returned 2xx but no `access_token`. |
+| `Another request is still refreshing this Apple connection.` | Waited 10 seconds for another request's refresh lock. `getError()` is `refresh_in_progress`. |
 | `Apple OAuth broker credentials are not configured.` | Broker mode with no broker credentials. `getError()` is `broker_not_configured`. |
 | `The Apple connection cannot be refreshed because the site license has expired.` | Broker returned 402. Thrown as [`LicenseExpiredException`](API-Reference/Exceptions#licenseexpiredexception), and the connection is **not** disconnected. |
 

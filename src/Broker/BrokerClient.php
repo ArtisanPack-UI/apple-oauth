@@ -180,11 +180,11 @@ class BrokerClient
      *
      * @since 1.1.0
      *
-     * @param  string  $refreshToken  The refresh token from the original exchange; returned again since the broker sends none back.
+     * @param  string  $refreshToken  The refresh token to trade in; kept when a broker response doesn't carry one (the Workshop always returns one, rotated or the same).
      * @param  string  $tokenType     Token type to keep when the broker does not report one.
      *
      * @throws LicenseExpiredException When the site's license has lapsed (HTTP 402).
-     * @throws TokenRefreshException   For any other failure. `getError()` is `invalid_grant` for a revoked grant.
+     * @throws TokenRefreshException   For any other failure. `getError()` is `invalid_grant` for a revoked grant, or `refresh_superseded` (HTTP 409) when another request rotated the token moments ago.
      */
     public function refresh( string $refreshToken, string $tokenType = 'Bearer' ): TokenResponse
     {

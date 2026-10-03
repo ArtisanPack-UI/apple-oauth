@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Security
+- Broker mode signs `/authorize` links with `hash_hmac( 'sha256', 'jmwd-workshop:oauth-authorize', $secretPart )` instead of the SHA-256 of the site secret's plain part, which is the hash the broker stores ([#28](https://github.com/ArtisanPack-UI/apple-oauth/issues/28)). Brokers that dropped the old key refused every link with a `403`. `BrokerCredentials::SIGNING_KEY_LABEL` holds the label. Sites registered before the broker switched keys need a new site secret from the broker admin (or must register again).
+
+### Fixed
+- `TokenManager::refresh()` serializes refreshes of one connection with a cache lock and re-reads the connection after taking it, so two requests racing on an expired token make one refresh ([#28](https://github.com/ArtisanPack-UI/apple-oauth/issues/28)). When a refresh still fails because another request rotated the token first (the broker's non-terminal `409 refresh_superseded`, or `invalid_grant` after the winner saved), the winner's saved tokens are used and the connection is never disconnected. A request that waits more than 10 seconds for the lock throws `TokenRefreshException` with `refresh_in_progress`.
+- The `BrokerClient::refresh()` docblock and API reference no longer claim the broker sends no refresh token back.
+
 ## [1.2.0] - 2026-10-03
 
 ### Security
